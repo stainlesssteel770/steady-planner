@@ -637,7 +637,7 @@ function renderPlan() {
   var cells = planCells(week), ctx = planCtx(week);
   var step = ui.planStep || planStepDefault(week);
   var pros = ENGINE.proteinsOf(cells);
-  var h = '<section class="card"><div class="row spread"><div><h2 style="margin:0">Meal plan</h2>' +
+  var h = '<section class="card"><div class="row spread plan-head"><div><h2 style="margin:0">Meal plan</h2>' +
     '<div class="muted small">' + shortDate(week) + ' – ' + shortDate(addDays(week, 5)) + ' · Sunday to Friday</div></div>' +
     '<div class="week-toggle seg"><button data-act="plan-week" data-w="' + tw + '" class="' + (week === tw ? "on" : "") + '">This week</button>' +
     '<button data-act="plan-week" data-w="' + addDays(tw, 7) + '" class="' + (week === addDays(tw, 7) ? "on" : "") + '">Next week</button></div></div>';
