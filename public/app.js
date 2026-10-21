@@ -1225,7 +1225,7 @@ function afterDinnerPick(week, dinnerKey) {
   var lunchKey = "m" + (d + 1) + "L";
   var lc = cells[lunchKey];
   if (!lc || !lc.lo) return;
-  if (lc.k) { showInfoToast("Tomorrow's lunch is locked as leftovers — the dinner changed, so check it."); return; }
+  if (lc.k) { return "locked"; }
   var dn = ENGINE.resolve(ctx, cells, dinnerKey);
   if (dn && dn.meal && dn.meal.lo) {
     var td = ENGINE.resolve(ctx, cells, "m" + (d + 1) + "D");
@@ -1454,19 +1454,26 @@ document.addEventListener("click", function (ev) {
     var prevLoM = (isDinnerM && dowM <= 4 && cellsM[lunchKeyM]) ? JSON.parse(JSON.stringify(cellsM[lunchKeyM])) : null;
     closeMealPicker();
     opPlan(weekM, keyM, valM);
-    if (isDinnerM) afterDinnerPick(weekM, keyM);
+    /* Item 3 (batch 2): when tomorrow's leftovers lunch is locked, the note
+       rides inside the Undo toast below instead of a separate info toast
+       (which the Undo toast would replace in the same tick). */
+    var lockNoteM = false;
+    if (isDinnerM) lockNoteM = afterDinnerPick(weekM, keyM) === "locked";
     var cellsAfterM = planCells(weekM);
     var postM = cellsAfterM[keyM] ? JSON.parse(JSON.stringify(cellsAfterM[keyM])) : null;
     var postLoM = cellsAfterM[lunchKeyM] ? JSON.parse(JSON.stringify(cellsAfterM[lunchKeyM])) : null;
     if (!sameJSON(prevM, postM)) {
       var msgM = "Changed " + ENGINE.DAYN[dowM] + " " + (isDinnerM ? "dinner" : "lunch") + ".";
       if (isDinnerM && prevLoM && prevLoM.lo && !sameJSON(postLoM, prevLoM)) msgM += " " + ENGINE.DAYN[dowM + 1] + "'s lunch updated too.";
+      if (lockNoteM) msgM += " " + ENGINE.DAYN[dowM + 1] + "'s lunch is locked as leftovers — check it.";
       showUndoToast(msgM, function () {
         var cellsNowM = planCells(weekM);
         if (sameJSON(cellsNowM[keyM] || null, postM)) opPlan(weekM, keyM, prevM, { silent: true });
         if (prevLoM && prevLoM.lo && !sameJSON(postLoM, prevLoM) && sameJSON(cellsNowM[lunchKeyM] || null, postLoM)) opPlan(weekM, lunchKeyM, prevLoM, { silent: true });
         saveLocal(); statusAfterEdit(); render(true);
       });
+    } else if (lockNoteM) {
+      showInfoToast("Tomorrow's lunch is locked as leftovers — the dinner changed, so check it.");
     }
     return;
   }
