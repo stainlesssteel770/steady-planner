@@ -17,6 +17,7 @@ This is the personal-use build. It is a completely static site hosted on GitHub 
 - **Today:** 10 daily habits with a score (out of 10, or out of 6 on Fridays / erev Yom Tov — evening habits aren't counted then), week dots, streak, steps goal, weekly weight/waist check-in with trend.
 - **Rest days:** Shabbos and Yom Tov (diaspora list, through Oct 2028) aren't tracked. Any day can be manually marked as a rest day, or a calendar rest day marked "track anyway", in Settings.
 - **Workout:** 20-minute home routine, 5 moves, 3–4 rounds, rest timer, rep progression levels.
+- **Cooking for:** set how many people for breakfast, lunch and dinner separately in the Plan tab — the shopping list and prep amounts scale automatically (weekly staples/snacks stay sized for one). Carries over to next week.
 - **Plan:** pick 2–4 proteins and it builds the week (Sun–Fri; Shabbos and Yom Tov are not planned), with leftovers, a generated shopping list grouped by store section, and a prep-day timeline with fridge/freezer plan. All meals carry kosher tags (meat / dairy / pareve / fish) and the generator keeps meat lunches off dairy-dinner days.
 - **Meals:** day-plan ideas, kosher notes, Shabbos tips.
 

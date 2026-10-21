@@ -104,22 +104,32 @@
     return base;
   }
 
+  /* ---------- family size: people per meal ---------- */
+  // Cells srvB / srvL / srvD: how many people each meal is cooked for (default 1).
+  function servingsOf(cells) {
+    var v = cellVals(cells);
+    function n(x) { x = Math.round(Number(x)); return isFinite(x) ? Math.max(1, Math.min(20, x)) : 1; }
+    return { B: n(v.srvB), L: n(v.srvL), D: n(v.srvD) };
+  }
+  function peopleFor(srv, slot) { return slot === "L" ? srv.L : srv.D; }
+
   /* ---------- cooked: servings + eatings ---------- */
   function cooked(ctx, cells) {
+    var srv = servingsOf(cells);
     var sl = slots(ctx, cells), eatings = [], servings = {}, bumped = [];
     sl.forEach(function (s) {
       var r = resolve(ctx, cells, s.key);
       if (!r || !r.meal) return;
-      eatings.push({ key: s.key, dow: s.dow, slot: s.slot, date: s.date, past: s.past, lo: r.lo, meal: r.meal, mealId: r.meal.id, srcKey: r.srcKey || null });
+      eatings.push({ key: s.key, dow: s.dow, slot: s.slot, date: s.date, past: s.past, lo: r.lo, meal: r.meal, mealId: r.meal.id, srcKey: r.srcKey || null, people: peopleFor(srv, s.slot) });
     });
     eatings.forEach(function (e) {
       if (e.past) return;
       if (e.lo) {
         var src = null;
         eatings.forEach(function (x) { if (x.key === e.srcKey) src = x; });
-        if (src && !src.past) servings[e.mealId] = (servings[e.mealId] || 0) + 1;
+        if (src && !src.past) servings[e.mealId] = (servings[e.mealId] || 0) + e.people;
       } else {
-        servings[e.mealId] = (servings[e.mealId] || 0) + 1;
+        servings[e.mealId] = (servings[e.mealId] || 0) + e.people;
       }
     });
     Object.keys(servings).forEach(function (id) {
@@ -329,9 +339,10 @@
       var meal = MEALS[id], s = ck.servings[id];
       meal.ing.forEach(function (pair) { add(pair[0], pair[1] * s, meal.n); });
     });
+    var srvS = servingsOf(cells);
     breakfastDays(ctx, cells).forEach(function (bd) {
       if (bd.past) return;
-      bd.bk.ing.forEach(function (pair) { add(pair[0], pair[1], bd.bk.n); });
+      bd.bk.ing.forEach(function (pair) { add(pair[0], pair[1] * srvS.B, bd.bk.n); });
     });
     var hidden = [];
     PD.STAPLES.forEach(function (pair) {
@@ -359,7 +370,7 @@
       if (k.indexOf("c_") === 0 && v[k] && typeof v[k] === "object" && v[k].n) customs.push({ cell: k, id: k.slice(2), n: v[k].n, q: v[k].q || "", at: v[k].at || 0 });
     });
     customs.sort(function (a, b) { return a.at - b.at; });
-    return { sections: sections, customs: customs, hidden: hidden };
+    return { sections: sections, customs: customs, hidden: hidden, servings: srvS };
   }
 
   /* ---------- prep ---------- */
@@ -405,13 +416,13 @@
     var before = [], portions = [], cookFresh = [], thawMap = [];
     var batch = {};   // compId -> {amount, feeds:[], frozenLater:bool}
     var mid = {};      // compId -> {amount, feeds:[]}
-    function feed(map, cid, mealLike, name) {
+    function feed(map, cid, mealLike, name, factor) {
       var c = COMP[cid]; if (!c) return;
       var e = map[cid] || (map[cid] = { amount: c.sz ? 0 : null, feeds: [] });
-      if (c.sz) e.amount += amtOf(mealLike, c.sz);
+      if (c.sz) e.amount += amtOf(mealLike, c.sz) * (factor || 1);
       if (e.feeds.indexOf(name) < 0) e.feeds.push(name);
     }
-    function classify(eating, mealLike, name, isBk) {
+    function classify(eating, mealLike, name, factor) {
       var off = eating.dow - eff;
       var comps = mealLike.prep || [];
       var allOK = true, freezableCover = true, anyFrozen = false;
@@ -421,8 +432,8 @@
       });
       comps.forEach(function (cid) {
         var c = COMP[cid]; if (!c) return;
-        if (fridgeOK(c, off) || c.z) { feed(batch, cid, mealLike, name); if (!fridgeOK(c, off)) batch[cid].frozenLater = true; }
-        else feed(mid, cid, mealLike, name);
+        if (fridgeOK(c, off) || c.z) { feed(batch, cid, mealLike, name, factor); if (!fridgeOK(c, off)) batch[cid].frozenLater = true; }
+        else feed(mid, cid, mealLike, name, factor);
       });
       return { allOK: allOK, anyFrozen: anyFrozen, freezableCover: freezableCover };
     }
@@ -434,18 +445,18 @@
       }
       if (e.lo) {
         // The portion was packed from the source dinner's batch; still list it as a fridge portion.
-        portions.push({ key: e.key, tick: "p" + e.key, dow: e.dow, slot: e.slot, date: e.date, name: "Leftovers: " + e.meal.n, where: "fridge", lo: true });
+        portions.push({ key: e.key, tick: "p" + e.key, dow: e.dow, slot: e.slot, date: e.date, name: "Leftovers: " + e.meal.n, where: "fridge", lo: true, people: e.people });
         return;
       }
       if (e.meal.fresh) {
-        var r = classify(e, e.meal, e.meal.n, false);
-        cookFresh.push({ key: e.key, dow: e.dow, slot: e.slot, date: e.date, name: e.meal.n, freezerPart: r.anyFrozen });
+        var r = classify(e, e.meal, e.meal.n, e.people);
+        cookFresh.push({ key: e.key, dow: e.dow, slot: e.slot, date: e.date, name: e.meal.n, freezerPart: r.anyFrozen, people: e.people });
         if (r.anyFrozen) thawMap.push({ dow: e.dow, text: "Move " + DAYN[e.dow] + " " + label.toLowerCase() + " (" + e.meal.n + ") to the fridge" });
         return;
       }
-      var r2 = classify(e, e.meal, e.meal.n, false);
+      var r2 = classify(e, e.meal, e.meal.n, e.people);
       var where = r2.allOK ? "fridge" : (r2.freezableCover ? "freezer" : "midweek");
-      portions.push({ key: e.key, tick: "p" + e.key, dow: e.dow, slot: e.slot, date: e.date, name: e.meal.n, where: where });
+      portions.push({ key: e.key, tick: "p" + e.key, dow: e.dow, slot: e.slot, date: e.date, name: e.meal.n, where: where, people: e.people });
       if (where === "freezer") thawMap.push({ dow: e.dow, text: "Move " + DAYN[e.dow] + " " + label.toLowerCase() + " (" + e.meal.n + ") to the fridge" });
     });
     // Extra freezer portions from pot bumps.
@@ -453,7 +464,7 @@
       var has = ck.eatings.some(function (e) { return e.mealId === id && !e.lo; });
       if (!has) return;
       var first = ck.eatings.filter(function (e) { return e.mealId === id && !e.lo; })[0];
-      portions.push({ key: first.key + "x", tick: "p" + first.key + "x", dow: first.dow, slot: first.slot, date: first.date, name: MEALS[id].n + " (extra)", where: "freezer", extra: true });
+      portions.push({ key: first.key + "x", tick: "p" + first.key + "x", dow: first.dow, slot: first.slot, date: first.date, name: MEALS[id].n + " (extra)", where: "freezer", extra: true, people: 1 });
     });
     // Breakfast components for breakfast days on/after the prep day.
     var bkByComp = {};
@@ -469,9 +480,10 @@
     Object.keys(bkByComp).forEach(function (cid) {
       var c = COMP[cid], info = bkByComp[cid];
       var maxOff = Math.max.apply(null, info.offs);
+      var srvBk = servingsOf(cells).B;
       info.meals.forEach(function (mm) {
-        if (fridgeOK(c, maxOff) || c.z) { feed(batch, cid, mm.bk, mm.bk.n); if (!fridgeOK(c, maxOff)) batch[cid].frozenLater = true; }
-        else feed(mid, cid, mm.bk, mm.bk.n);
+        if (fridgeOK(c, maxOff) || c.z) { feed(batch, cid, mm.bk, mm.bk.n, srvBk); if (!fridgeOK(c, maxOff)) batch[cid].frozenLater = true; }
+        else feed(mid, cid, mm.bk, mm.bk.n, srvBk);
       });
     });
     // Timeline.
@@ -495,7 +507,7 @@
         meat: !!c.meat, ready: finish > 15 ? clock(finish) : ""
       });
     });
-    var containers = portions.length;
+    var containers = portions.reduce(function (n2, p2) { return n2 + (p2.people || 1); }, 0);
     var packDur = Math.min(20, 8 + containers);
     var total = 0;
     if (batchIds.length) {
@@ -513,6 +525,7 @@
     var midTotal = midTasks.reduce(function (s2, t2) { return s2 + t2.a; }, 0);
     var thaws = thawMap.map(function (t2, i) { return { tick: "mv" + t2.dow + "_" + i, dow: t2.dow, text: t2.text }; });
     return {
+      servings: servingsOf(cells),
       savedDay: savedDay, prepDay: eff, prepDate: prepDate, note: note,
       steps: batchIds.length ? steps : [],
       empty: batchIds.length === 0,
@@ -532,7 +545,7 @@
     slots: slots, resolve: resolve, generate: generate, shuffleOne: shuffleOne,
     cooked: cooked, breakfastDays: breakfastDays, breakfastPair: breakfastPair,
     shopping: shopping, prep: prep, qtyText: qtyText, frac: frac, dur: dur, clock: clock,
-    proteinsOf: proteinsOf, addDays: addDays, dowOf: dowOf, cellVals: cellVals,
+    proteinsOf: proteinsOf, servingsOf: servingsOf, addDays: addDays, dowOf: dowOf, cellVals: cellVals,
     DAYN: DAYN, DAY3: DAY3
   };
 })(typeof window !== "undefined" ? window : globalThis);

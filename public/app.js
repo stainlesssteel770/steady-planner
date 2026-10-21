@@ -552,6 +552,15 @@ function renderPlan() {
   h += '<div class="stepper-bar">' + stepsMeta.map(function (sm, i) {
     return '<button class="step-btn' + (step === sm[0] ? " on" : "") + '" data-act="plan-step" data-s="' + sm[0] + '">' + (stepDone[sm[0]] ? "✓" : (i + 1)) + ' ' + sm[1] + '</button>';
   }).join("") + '</div></section>';
+  // Cooking for: people per meal (srvB/srvL/srvD cells) — scales shopping + prep.
+  var srv = ENGINE.servingsOf(cells);
+  var srvRows = [["srvB", "Breakfast", srv.B], ["srvL", "Lunch", srv.L], ["srvD", "Dinner", srv.D]];
+  h += '<section class="card"><h3 style="margin-top:0">Cooking for</h3>' + srvRows.map(function (r) {
+    return '<div class="row spread"><span><b>' + r[1] + '</b></span><span class="stepper">' +
+      '<button data-act="srv" data-k="' + r[0] + '" data-d="-1"' + (r[2] <= 1 ? " disabled" : "") + ' aria-label="Fewer people at ' + r[1].toLowerCase() + '">−</button>' +
+      '<b>' + r[2] + (r[2] === 1 ? " person" : " people") + '</b>' +
+      '<button data-act="srv" data-k="' + r[0] + '" data-d="1"' + (r[2] >= 20 ? " disabled" : "") + ' aria-label="More people at ' + r[1].toLowerCase() + '">+</button></span></div>';
+  }).join("") + '<p class="muted small" style="margin-bottom:0">The shopping list and prep amounts scale to this. Your weekly staples and snacks stay sized for one.</p></section>';
   if (step === "pro") h += planProHTML(week, cells, ctx, pros);
   else if (step === "week") h += planWeekHTML(week, cells, ctx);
   else if (step === "shop") h += planShopHTML(week, cells, ctx, shop, tickedLines, totalLines);
@@ -595,6 +604,9 @@ function mealCardHTML(ctx, cells, key) {
     '<button class="mini-btn" data-act="lock" data-k="' + key + '" aria-label="Lock this meal">' + (r.locked ? "🔒" : "🔓") + '</button></span></div>';
   if (!r.meal) { h += '<div class="meal-name muted">Nothing planned yet</div></div>'; return h; }
   var hint = r.lo ? "reheat" : r.meal.min >= 90 ? "prep-day pot" : r.meal.min + " min";
+  var srvMC = ENGINE.servingsOf(cells);
+  var pplMC = r.slot === "L" ? srvMC.L : srvMC.D;
+  if (pplMC > 1) hint += " · for " + pplMC;
   h += '<div class="meal-name">' + tagPill(r.meal.t) + ' ' + (r.lo ? "Leftovers: " : "") + esc(r.meal.n) + ' <span class="muted small">· ' + hint + '</span></div>' +
     '<div class="meal-how">' + (r.lo ? "Second portion of last night's dinner, packed on the night." : esc(r.meal.how)) + '</div>';
   if (r.slot === "D") {
@@ -651,7 +663,7 @@ function planWeekHTML(week, cells, ctx) {
 }
 function planShopHTML(week, cells, ctx, shop, ticked, total) {
   var h = '<section class="card"><h3>Shopping list</h3>' +
-    '<p class="muted">Built from this week\'s plan (meals still ahead), sized for one, plus your everyday snacks and treats.</p>' +
+    '<p class="muted">Built from this week\'s plan (meals still ahead)' + ((shop && shop.servings && (shop.servings.B > 1 || shop.servings.L > 1 || shop.servings.D > 1)) ? ', scaled for breakfast ×' + shop.servings.B + ' · lunch ×' + shop.servings.L + ' · dinner ×' + shop.servings.D : ', sized for one') + ', plus your everyday snacks and treats (staples stay sized for one).</p>' +
     '<div class="progress"><div style="width:' + (total ? Math.round(ticked / total * 100) : 0) + '%"></div></div>' +
     '<p class="muted small">' + ticked + ' of ' + total + ' · Look for a reliable hechsher on everything packaged. Meat and poultry from a kosher butcher.</p></section>';
   shop.sections.forEach(function (sec) {
@@ -730,7 +742,7 @@ function planPrepHTML(week, cells, ctx, prep) {
     return list.map(function (p) {
       var on = !!cells["t_" + p.tick];
       return '<div class="prep-step"><input type="checkbox" data-act="ttick" data-id="t_' + p.tick + '"' + (on ? " checked" : "") + ' aria-label="' + esc(p.name) + '">' +
-        '<div><b>' + ENGINE.DAY3[p.dow] + '</b> ' + (p.slot === "L" ? "Lunch" : "Dinner") + ': ' + esc(p.name) + '</div></div>';
+        '<div><b>' + ENGINE.DAY3[p.dow] + '</b> ' + (p.slot === "L" ? "Lunch" : "Dinner") + ': ' + esc(p.name) + (p.people > 1 ? ' <span class="kv">× ' + p.people + ' people</span>' : "") + '</div></div>';
     }).join("");
   }
   if (prep.fridge.length || prep.freezer.length) {
@@ -742,7 +754,7 @@ function planPrepHTML(week, cells, ctx, prep) {
   if (prep.cookFresh.length) {
     h += '<section class="card"><h3>Cook fresh that day</h3>' +
       prep.cookFresh.map(function (c) {
-        return '<p><b>' + ENGINE.DAY3[c.dow] + '</b> ' + (c.slot === "L" ? "Lunch" : "Dinner") + ': ' + esc(c.name) +
+        return '<p><b>' + ENGINE.DAY3[c.dow] + '</b> ' + (c.slot === "L" ? "Lunch" : "Dinner") + ': ' + esc(c.name) + (c.people > 1 ? ' <span class="kv">× ' + c.people + ' people</span>' : "") +
           (c.freezerPart ? '<br><span class="kv">Part of it is in the freezer — move it to the fridge the night before.</span>' : "") + '</p>';
       }).join("") +
       '<p class="muted small">Fish: keep raw fish in the fridge and cook within 1–2 days of buying, or buy frozen and thaw overnight.</p></section>';
@@ -791,6 +803,7 @@ function scheduleSnap() {
     shop.customs.forEach(function (c) { shoppingList.push({ name: c.n, qty: c.q, done: !!cells["g_c_" + c.id], section: "Your items" }); });
     var prep = ENGINE.prep(ctx, cells, getSetting("prepDay"));
     var snap = {
+      servings: ENGINE.servingsOf(cells),
       proteins: ENGINE.proteinsOf(cells),
       breakfast: ENGINE.breakfastPair(cells).map(function (id) { return PD.BK[id] ? PD.BK[id].n : id; }),
       meals: meals,
@@ -832,6 +845,7 @@ function buildWeek(week) {
         if (!hasH && k.indexOf("h_") === 0 && src[k]) opPlan(week, k, src[k], { silent: true });
       });
       if (!cells.bk && src.bk) opPlan(week, "bk", src.bk, { silent: true });
+      ["srvB", "srvL", "srvD"].forEach(function (sk) { if (cells[sk] == null && src[sk] != null) opPlan(week, sk, src[sk], { silent: true }); });
       cells = planCells(week);
     }
   }
@@ -942,6 +956,13 @@ document.addEventListener("click", function (ev) {
     var week2 = currentPlanWeek(), cells2 = planCells(week2), k = el.getAttribute("data-k");
     var cur = k === "on5D" ? cells2[k] === true : cells2[k] !== false;
     opPlan(week2, k, !cur);
+    return;
+  }
+  if (act === "srv") {
+    var weekS = currentPlanWeek(), cellsS = planCells(weekS), kS = el.getAttribute("data-k");
+    var curS = ENGINE.servingsOf(cellsS)[kS === "srvB" ? "B" : kS === "srvL" ? "L" : "D"];
+    var nextS = Math.max(1, Math.min(20, curS + (+el.getAttribute("data-d"))));
+    if (nextS !== curS) opPlan(weekS, kS, nextS);
     return;
   }
   if (act === "build") { buildWeek(currentPlanWeek()); return; }
