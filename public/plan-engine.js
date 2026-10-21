@@ -274,9 +274,9 @@
     var levels = [[false, false], [true, false], [true, true]];
     for (var lvl = 0; lvl < levels.length; lvl++) {
       var list = candidates(P, "L", used, 99, levels[lvl][0], levels[lvl][1]);
-      if (tonightMeal && tonightMeal.t === "D") {
-        var nonM = list.filter(function (mm) { return mm.t !== "M"; });
-        if (nonM.length) list = nonM;
+      if (tonightMeal) {
+        var nonB = list.filter(function (mm) { return !pickerBlocked(mm.t, "L", tonightMeal.t); });
+        if (nonB.length) list = nonB;
       }
       var nf = list.filter(function (mm) { return !mm.fresh; });
       if (nf.length) list = nf;
@@ -301,6 +301,14 @@
       if (r && r.meal) used[r.meal.id] = true;
     });
     var all = candidates(P, slotLetter, {}, 99, true, true).filter(function (mm) { return !cur || !cur.meal || mm.id !== cur.meal.id; });
+    if (slotLetter === "L") {
+      var dnR = resolve(ctx, cells, "m" + key.charAt(1) + "D");
+      var dnTag = dnR && dnR.meal ? dnR.meal.t : null;
+      if (dnTag) {
+        var okL = all.filter(function (mm) { return !pickerBlocked(mm.t, "L", dnTag); });
+        if (okL.length) all = okL;
+      }
+    }
     var unused = all.filter(function (mm) { return !used[mm.id]; });
     var pool = unused.length ? unused : all;
     if (cur && cur.meal && P.length > 1) {
