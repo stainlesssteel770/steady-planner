@@ -26,7 +26,41 @@ function saveUi() { lsSet("steady.ui", ui); }
 /* ---------------- dates ---------------- */
 function pad2(n) { return (n < 10 ? "0" : "") + n; }
 function fmtDate(d) { return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()); }
-function todayStrFn() { var d = new Date(Date.now() - 4 * 3600 * 1000); return fmtDate(d); }
+/* TESTMODE (Beta batch 2 item 2): "Act like Sunday". Everything test-mode
+   lives in this block plus one-line TESTMODE hooks (todayStrFn, render,
+   the 4am label, the dispatcher, openSettings, the backup guards).
+   Delete this block and the hooks to remove the feature. State is kept
+   OUT of steady.state: steady.testmode = {fake, lastSeen} and the data
+   snapshot in steady.testsnap (raw localStorage strings, byte-for-byte). */
+function tmRestoreSnapshot() {
+  var snap = null;
+  try { snap = JSON.parse(localStorage.getItem("steady.testsnap") || "null"); } catch (e) {}
+  if (!snap) return false;
+  var keys = [];
+  for (var i = 0; i < localStorage.length; i++) { var k = localStorage.key(i); if (k && k.indexOf("steady.") === 0 && k !== "steady.testmode" && k !== "steady.testsnap") keys.push(k); }
+  keys.forEach(function (k) { try { localStorage.removeItem(k); } catch (e) {} });
+  Object.keys(snap).forEach(function (k) { try { localStorage.setItem(k, snap[k]); } catch (e) {} });
+  try { localStorage.removeItem("steady.testsnap"); } catch (e) {}
+  return true;
+}
+var TM = (function () {
+  var raw = null;
+  try { raw = JSON.parse(localStorage.getItem("steady.testmode") || "null"); } catch (e) {}
+  if (!raw || !raw.fake) return { on: false, fake: null };
+  /* Auto-off: closed for 12+ hours — restore before anything reads state. */
+  if (Date.now() - (raw.lastSeen || 0) >= 12 * 3600 * 1000) {
+    tmRestoreSnapshot();
+    try { localStorage.removeItem("steady.testmode"); } catch (e) {}
+    return { on: false, fake: null };
+  }
+  try { raw.lastSeen = Date.now(); localStorage.setItem("steady.testmode", JSON.stringify(raw)); } catch (e) {}
+  return { on: true, fake: raw.fake };
+})();
+document.addEventListener("visibilitychange", function () { /* TESTMODE */
+  if (!TM.on || document.hidden) return;
+  try { var raw = JSON.parse(localStorage.getItem("steady.testmode") || "null"); if (raw) { raw.lastSeen = Date.now(); localStorage.setItem("steady.testmode", JSON.stringify(raw)); } } catch (e) {}
+});
+function todayStrFn() { if (TM.on) return TM.fake; /* TESTMODE */ var d = new Date(Date.now() - 4 * 3600 * 1000); return fmtDate(d); }
 var todayStr = todayStrFn();
 function parseLocal(s) { var p = s.split("-"); return new Date(+p[0], +p[1] - 1, +p[2], 12); }
 function dowOf(s) { return parseLocal(s).getDay(); }
@@ -209,6 +243,7 @@ function render(force) {
   else if (ui.tab === "workout") html = renderWorkout();
   else if (ui.tab === "plan") html = renderPlan();
   else html = renderMeals();
+  if (TM.on) html = tmBannerHTML() + html; /* TESTMODE */
   mainEl().innerHTML = html;
   if (ui.tab === "plan") scheduleSnap();
 }
@@ -306,7 +341,7 @@ function renderToday() {
   h += '<section class="card hero"><div class="daynav">' +
     '<button class="nav-arrow" data-act="day-prev" aria-label="Previous day">‹</button>' +
     '<div><div class="day-title">' + (date === todayStr ? "Today" : date === addDays(todayStr, -1) ? "Yesterday" : ENGINE.DAYN[dowOf(date)]) + '</div>' +
-    '<div class="day-sub">' + esc(longDate(date)) + ((date === todayStr && new Date().getHours() < 4) ? ' · until 4am' : '') + '</div></div>' +
+    '<div class="day-sub">' + esc(longDate(date)) + ((date === todayStr && !TM.on && new Date().getHours() < 4) ? ' · until 4am' : '') + '</div></div>' +
     '<button class="nav-arrow" data-act="day-next" aria-label="Next day"' + (date >= todayStr ? " disabled" : "") + '>›</button></div>';
   if (rest) h += '<div class="rest-score">✦ no tracking today</div>';
   else {
@@ -1361,6 +1396,7 @@ document.addEventListener("click", function (ev) {
   if (act === "day-next") { if (selDate < todayStr) selDate = addDays(selDate, 1); render(true); return; }
   if (act === "dot") { selDate = el.getAttribute("data-date"); render(true); return; }
   if (act === "goto-today") { selDate = todayStr; render(true); return; }
+  if (act === "tm-off") { tmTurnOff(); return; } /* TESTMODE */
   if (act === "tick") {
     var f = el.getAttribute("data-f");
     if (isRest(selDate)) return;
@@ -1713,6 +1749,7 @@ function openSettings() {
   document.getElementById("setRestCtl").innerHTML = ctl;
   var lbEl2 = document.getElementById("lastBackupLine");
   if (lbEl2) { var lb2 = lastBackupInfo(); lbEl2.textContent = lb2.text; lbEl2.className = "small " + (lb2.warn ? "warn" : "muted"); }
+  tmRefreshSettings(); /* TESTMODE */
   if (typeof dlg.showModal === "function" && !dlg.open) { dlg.showModal(); pushDialogHistory("settings"); }
 }
 document.getElementById("gearBtn").addEventListener("click", openSettings);
@@ -1960,8 +1997,46 @@ document.getElementById("installBtnBanner").addEventListener("click", function (
 document.getElementById("installDismiss").addEventListener("click", function () { lsSetFlag("steady.installDismissed"); refreshInstallUI(); });
 refreshInstallUI();
 
+/* ---------------- test mode actions (Beta batch 2 item 2) ---------------- */
+function tmBannerHTML() { /* TESTMODE */
+  return '<div class="banner testmode-banner">Test mode: acting as ' + esc(longDate(TM.fake)) + ' <button class="link-btn" data-act="tm-off">Turn off</button></div>';
+}
+function tmSnapshot() { /* TESTMODE: every steady.* DATA key, raw strings; the two test-mode keys are never part of the snapshot. */
+  var snap = {};
+  for (var i = 0; i < localStorage.length; i++) { var k = localStorage.key(i); if (k && k.indexOf("steady.") === 0 && k !== "steady.testmode" && k !== "steady.testsnap") snap[k] = localStorage.getItem(k); }
+  return snap;
+}
+function tmMsg(text) { /* TESTMODE */
+  var el = document.getElementById("tmMsg");
+  if (el) { el.textContent = text; el.hidden = !text; }
+}
+function tmTurnOn() { /* TESTMODE */
+  try { localStorage.setItem("steady.testsnap", JSON.stringify(tmSnapshot())); } catch (e) { tmMsg("Couldn't start test mode — the snapshot couldn't be saved (storage may be full). Nothing was changed."); return; }
+  if (!localStorage.getItem("steady.testsnap")) { tmMsg("Couldn't start test mode — the snapshot couldn't be saved (storage may be full). Nothing was changed."); return; }
+  var real = todayStrFn();
+  var fake = addDays(real, (7 - dowOf(real)) % 7);
+  try { localStorage.setItem("steady.testmode", JSON.stringify({ fake: fake, lastSeen: Date.now() })); }
+  catch (e) { try { localStorage.removeItem("steady.testsnap"); } catch (e2) {} tmMsg("Couldn't start test mode — settings couldn't be saved (storage may be full). Nothing was changed."); return; }
+  location.reload();
+}
+function tmTurnOff() { /* TESTMODE */
+  tmRestoreSnapshot();
+  try { localStorage.removeItem("steady.testmode"); } catch (e) {}
+  location.reload();
+}
+function tmRefreshSettings() { /* TESTMODE */
+  var t = document.getElementById("tmToggle");
+  if (t) t.textContent = TM.on ? "Turn off test mode" : "Act like Sunday";
+  var b = document.getElementById("backupBtn"); if (b) b.disabled = TM.on;
+  var r = document.getElementById("restoreBtn"); if (r) r.disabled = TM.on;
+  var n = document.getElementById("tmBackupNote"); if (n) n.hidden = !TM.on;
+  if (!TM.on) tmMsg("");
+}
+document.getElementById("tmToggle").addEventListener("click", function () { if (TM.on) tmTurnOff(); else tmTurnOn(); });
+
 /* ---------------- backup / restore ---------------- */
 document.getElementById("backupBtn").addEventListener("click", function () {
+  if (TM.on) return; /* TESTMODE: test data never goes into a backup */
   lsSet("steady.lastBackup", Date.now());
   var lbEl = document.getElementById("lastBackupLine");
   if (lbEl) { var lb = lastBackupInfo(); lbEl.textContent = lb.text; lbEl.className = "small " + (lb.warn ? "warn" : "muted"); }
@@ -1979,6 +2054,7 @@ document.getElementById("backupBtn").addEventListener("click", function () {
   setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
 });
 document.getElementById("restoreBtn").addEventListener("click", function () {
+  if (TM.on) return; /* TESTMODE: a restore must not overwrite the snapshot */
   document.getElementById("restoreInput").click();
 });
 document.getElementById("restoreInput").addEventListener("change", function (ev) {

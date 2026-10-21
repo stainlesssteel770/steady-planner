@@ -170,6 +170,8 @@ main {
 .banner { border-radius: 12px; padding: 12px 14px; margin: 12px 0; background: var(--soft); border: 1px solid var(--line); }
 .banner.full { background: var(--accent); color: var(--accent-ink); font-weight: 700; text-align: center; }
 .banner.prerest { border-color: var(--rest); }
+/* Beta batch 2 item 2: test-mode banner stands out on every tab. */
+.testmode-banner { background: #fdf0d5; border-color: var(--mid); font-weight: 600; }
 .nudge { border-left: 4px solid var(--warning); }
 .checkin-num { width: 110px; min-height: 44px; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: var(--bg); }
 details.card > summary, summary.tap { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-weight: 650; list-style: none; }

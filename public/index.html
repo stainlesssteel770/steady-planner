@@ -58,9 +58,18 @@
       </div>
       <p class="small" id="iosSteps" hidden>On iPhone: tap the Share button, then “Add to Home Screen”, then Add.</p>
     </div>
+    <div class="fld" id="tmFld">
+      <div class="fld-label">Test mode</div>
+      <p class="muted small">Act like the coming Sunday, everywhere in the app, so Sunday options can be tried any day. Your real data is snapshotted when it turns on and restored exactly when it turns off — nothing done in test mode sticks. Turning it on or off reloads the app.</p>
+      <div class="rest-ctl">
+        <button type="button" class="btn" id="tmToggle">Act like Sunday</button>
+      </div>
+      <p class="small" id="tmMsg" role="alert" hidden></p>
+    </div>
     <div class="fld">
       <div class="fld-label">Backup</div>
       <p class="muted small">Everything is saved only in this browser, on this phone. Download a backup now and then — it is the file you restore from if you switch phones.</p>
+      <p class="small" id="tmBackupNote" hidden>Backup is off in test mode, so test data can never end up in a backup.</p>
       <p class="small" id="lastBackupLine"></p>
       <div class="rest-ctl">
         <button type="button" class="btn" id="backupBtn">Download backup</button>
