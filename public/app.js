@@ -1436,6 +1436,7 @@ document.addEventListener("click", function (ev) {
     var week4 = currentPlanWeek(), ctx4 = planCtx(week4), key = el.getAttribute("data-k");
     var cellsB4 = planCells(week4);
     var out = ENGINE.shuffleOne(ctx4, cellsB4, key, Math.random);
+    var noFitS = !!out.__noFit;
     var keys = [key];
     /* Batch 3 item 2: also write the SAME-day lunch for dinners — the
        engine's reverse re-pick (batch 1 item 2) was computed but dropped
@@ -1462,6 +1463,8 @@ document.addEventListener("click", function (ev) {
         if (didS) { saveLocal(); render(true); }
         return didS;
       });
+    } else if (noFitS) {
+      showInfoToast(key.slice(-1) === "D" ? "No other dinner fits today's lunch." : "No other lunch fits today's dinner.");
     }
     return;
   }

@@ -312,12 +312,27 @@
       if (r && r.meal) used[r.meal.id] = true;
     });
     var all = candidates(P, slotLetter, {}, 99, true, true).filter(function (mm) { return !cur || !cur.meal || mm.id !== cur.meal.id; });
+    /* Batch 4 item 1: HARD same-day meat/dairy filters — a candidate the
+       picker would hide is never served by the dice, in either slot. If a
+       filter empties the pool, the current meal stays and the caller is
+       told via out.__noFit (not a cell key; never persisted). */
+    var noFit = false;
     if (slotLetter === "L") {
       var dnR = resolve(ctx, cells, "m" + key.charAt(1) + "D");
       var dnTag = dnR && dnR.meal ? dnR.meal.t : null;
       if (dnTag) {
         var okL = all.filter(function (mm) { return !pickerBlocked(mm.t, "L", dnTag); });
-        if (okL.length) all = okL;
+        if (!okL.length && all.length) noFit = true;
+        all = okL;
+      }
+    }
+    if (slotLetter === "D") {
+      var luR = resolve(ctx, cells, "m" + key.charAt(1) + "L");
+      var luTag = luR && luR.meal ? luR.meal.t : null;
+      if (luTag) {
+        var okD = all.filter(function (mm) { return !pickerBlocked(mm.t, "D", luTag); });
+        if (!okD.length && all.length) noFit = true;
+        all = okD;
       }
     }
     var unused = all.filter(function (mm) { return !used[mm.id]; });
@@ -328,7 +343,7 @@
       if (same.length && other.length) pool = rand() < 0.45 ? same : other;
       else if (same.length && rand() < 0.45) pool = same;
     }
-    if (!pool.length) return out;
+    if (!pool.length) { if (noFit) out.__noFit = true; return out; }
     var meal = pickFrom(pool, rand);
     out[key] = { id: meal.id };
     // Dinner shuffled: an unlocked leftover lunch may need re-picking.
