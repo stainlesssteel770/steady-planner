@@ -1034,7 +1034,7 @@ function undoOrTell(week, beforeDoc, afterDoc, keys, onRestored) {
 }
 
 /* ---------------- share / copy lists ---------------- */
-function shareOrCopy(title, text, btn) {
+function shareOrCopy(title, text, btn, copyOnly) {
   function copied() {
     if (!btn) return;
     var old = btn.textContent;
@@ -1054,7 +1054,7 @@ function shareOrCopy(title, text, btn) {
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(copied, fallback);
     else fallback();
   }
-  if (navigator.share) {
+  if (navigator.share && !copyOnly) {
     var shareP;
     try { shareP = navigator.share({ title: title, text: text }); } catch (e) { shareP = Promise.reject(e); }
     Promise.resolve(shareP).then(function () {}, function (err) {
@@ -1420,7 +1420,7 @@ document.addEventListener("click", function (ev) {
   if (act === "share-shop-unticked") {
     var unt = shopShareText(currentPlanWeek(), true);
     if (!unt.items) { showInfoToast("Everything's ticked — nothing left to copy."); return; }
-    shareOrCopy("Shopping list — still to buy", unt.text, el);
+    shareOrCopy("Shopping list — still to buy", unt.text, el, true);
     return;
   }
   if (act === "share-prep") { shareOrCopy("Steady prep", prepShareText(currentPlanWeek()), el); return; }
