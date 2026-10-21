@@ -1544,7 +1544,7 @@ document.getElementById("mealPickerDlg").addEventListener("close", function () {
 document.getElementById("settingsDlg").addEventListener("close", function () { onDialogClosed("settings"); });
 document.getElementById("setSave").addEventListener("click", function (ev) {
   var errEl = document.getElementById("setError");
-  function setErr(msg) { if (errEl) { errEl.textContent = msg; errEl.hidden = !msg; } }
+  function setErr(msg) { if (errEl) { errEl.textContent = msg; errEl.hidden = !msg; if (msg) errEl.scrollIntoView({ block: "nearest" }); } }
   var sgRaw = document.getElementById("setStepGoal").value.trim();
   var wtRaw = document.getElementById("setWorkoutTarget").value.trim();
   var errs = [];
