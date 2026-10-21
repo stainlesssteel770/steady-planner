@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Steady — habits & meal planner</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <div class="brand">Steady</div>
+    <div class="top-right">
+      <div id="syncStatus" class="sync-status" aria-live="polite"></div>
+      <button id="gearBtn" class="icon-btn" aria-label="Settings">⚙︎</button>
+    </div>
+  </header>
+  <main id="main"></main>
+  <nav class="bottomnav" id="bottomNav">
+    <button data-tab="today"><span class="nav-ic">☀</span><span>Today</span></button>
+    <button data-tab="workout"><span class="nav-ic">💪</span><span>Workout</span></button>
+    <button data-tab="plan"><span class="nav-ic">🗓</span><span>Plan</span></button>
+    <button data-tab="meals"><span class="nav-ic">🍽</span><span>Meals</span></button>
+  </nav>
+</div>
+
+<dialog id="settingsDlg">
+  <form method="dialog" class="dlg-inner">
+    <h2>Settings</h2>
+    <label class="fld">Daily step goal
+      <input id="setStepGoal" type="number" min="1000" max="40000" step="500" inputmode="numeric">
+    </label>
+    <label class="fld">Workouts per week
+      <input id="setWorkoutTarget" type="number" min="1" max="7" step="1" inputmode="numeric">
+    </label>
+    <div class="fld">
+      <div class="fld-label" id="setRestLabel">Rest day</div>
+      <div class="rest-ctl" id="setRestCtl"></div>
+    </div>
+    <p class="muted small">Shabbos and Yom Tov come from the calendar automatically. To keep this on your home screen: Chrome menu ⋮ → Add to Home screen.</p>
+    <div class="fld">
+      <div class="fld-label">Backup</div>
+      <p class="muted small">Everything is saved only in this browser, on this phone. Download a backup now and then — it is the file you restore from if you switch phones.</p>
+      <div class="rest-ctl">
+        <button type="button" class="btn" id="backupBtn">Download backup</button>
+        <button type="button" class="btn" id="restoreBtn">Restore from backup</button>
+        <input type="file" id="restoreInput" accept="application/json,.json" hidden>
+      </div>
+    </div>
+    <div class="dlg-actions">
+      <button value="cancel" class="btn">Close</button>
+      <button id="setSave" value="default" class="btn primary">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="content.js" defer></script>
+<script src="plan-data.js" defer></script>
+<script src="plan-engine.js" defer></script>
+<script src="app.js" defer></script>
+</body>
+</html>
