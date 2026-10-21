@@ -661,7 +661,7 @@ function cookingForHTML(cells) {
 }
 function planProHTML(week, cells, ctx, pros) {
   var h = cookingForHTML(cells);
-  var lcP = readLastCleared();
+  var lcP = readLastCleared(week);
   if (lcP && lcP.week === week && !planHasMeals(week)) {
     h += '<section class="card"><p class="muted small" style="margin-top:0">Week of ' + shortDate(week) + ' · cleared ' + esc(clearedWhenText(lcP.at)) + '</p>' +
       '<button class="btn primary big" data-act="restore-cleared">Restore last week\'s plan</button></section>';
@@ -716,6 +716,11 @@ function mealCardHTML(ctx, cells, key) {
 }
 function planWeekHTML(week, cells, ctx) {
   var h = "";
+  var lcW = readLastCleared(week);
+  if (lcW && !planHasMeals(week)) {
+    h += '<section class="card"><p class="muted small" style="margin-top:0">Week of ' + shortDate(week) + ' · cleared ' + esc(clearedWhenText(lcW.at)) + '</p>' +
+      '<button class="btn primary big" data-act="restore-cleared">Restore last week\'s plan</button></section>';
+  }
   var pair = ENGINE.breakfastPair(cells);
   var bdays = ENGINE.breakfastDays(ctx, cells);
   h += '<section class="card"><div class="row spread"><h3 style="margin:0">Breakfast</h3><button class="mini-btn" data-act="bk-shuffle" aria-label="Shuffle breakfasts">🔀</button></div>';
@@ -1012,11 +1017,35 @@ function surgicalUndo(week, beforeDoc, afterDoc, keys) {
   render(true);
   return restored;
 }
-/* Add 1: last cleared week stays restorable until the next Build. */
-function readLastCleared() {
+/* Add 1: last cleared week stays restorable until the next Build.
+   Add 2 (round 3): one parked plan PER week — steady.lastCleared is a map
+   { week: {doc, at} }. A legacy single {week, doc, at} value is migrated in
+   place on first read, so a plan parked by an older version survives. */
+function clearedMap() {
   var lc = lsGet("steady.lastCleared", null);
-  if (!lc || typeof lc !== "object" || !lc.week || !lc.doc || typeof lc.doc !== "object" || !lc.doc.f) return null;
-  return lc;
+  if (!lc || typeof lc !== "object" || Array.isArray(lc)) return {};
+  if (lc.week && lc.doc) {
+    var m = {};
+    if (typeof lc.doc === "object" && lc.doc.f) m[lc.week] = { doc: lc.doc, at: lc.at };
+    lsSet("steady.lastCleared", m);
+    return m;
+  }
+  var out = {};
+  Object.keys(lc).forEach(function (w) {
+    var e = lc[w];
+    if (e && typeof e === "object" && e.doc && typeof e.doc === "object" && e.doc.f) out[w] = { doc: e.doc, at: e.at };
+  });
+  return out;
+}
+function readLastCleared(week) {
+  var e = week ? clearedMap()[week] : null;
+  return e ? { week: week, doc: e.doc, at: e.at } : null;
+}
+function setPark(week, entry) {
+  var m = clearedMap();
+  if (entry) m[week] = entry; else delete m[week];
+  if (Object.keys(m).length) lsSet("steady.lastCleared", m);
+  else try { localStorage.removeItem("steady.lastCleared"); } catch (e) {}
 }
 function clearedWhenText(at) {
   if (!at || typeof at !== "number") return "";
@@ -1227,8 +1256,7 @@ function writeCells(week, newCells, onlyKeys) {
   });
 }
 function buildWeek(week) {
-  var lcB = readLastCleared();
-  if (lcB && lcB.week === week) try { localStorage.removeItem("steady.lastCleared"); } catch (e) {}
+  if (readLastCleared(week)) setPark(week, null);
   var cells = planCells(week);
   var hasC = Object.keys(cells).some(function (k) { return k.indexOf("c_") === 0; });
   var hasH = Object.keys(cells).some(function (k) { return k.indexOf("h_") === 0; });
@@ -1459,7 +1487,7 @@ document.addEventListener("click", function (ev) {
     var week7 = currentPlanWeek();
     var snap7 = snapshotPlan(week7);
     var keys7 = Object.keys(ENGINE.cellVals(snap7 || { f: {} })).concat(["__cleared"]);
-    if (snap7 && planHasMeals(week7)) lsSet("steady.lastCleared", { week: week7, doc: snap7, at: Date.now() });
+    if (snap7 && planHasMeals(week7)) setPark(week7, { doc: snap7, at: Date.now() });
     ui.planStep = "pro"; saveUi();
     queueOp({ type: "plan", week: week7, clear: tsNow(), f: {} });
     var after7 = snapshotPlan(week7);
@@ -1476,17 +1504,16 @@ document.addEventListener("click", function (ev) {
       });
       if (dirty7) { showInfoToast("Nothing left to undo — those were changed since."); return; }
       undoOrTell(week7, snap7, after7, keys7, function () {
-        var lc7 = readLastCleared();
-        if (lc7 && lc7.week === week7) try { localStorage.removeItem("steady.lastCleared"); } catch (e) {}
+        setPark(week7, null);
       });
     });
     return;
   }
   if (act === "restore-cleared") {
-    var lcR = readLastCleared();
+    var lcR = readLastCleared(currentPlanWeek());
     if (lcR) {
       state.plans[lcR.week] = JSON.parse(JSON.stringify(lcR.doc));
-      try { localStorage.removeItem("steady.lastCleared"); } catch (e) {}
+      setPark(lcR.week, null);
       ui.planWs = lcR.week;
       ui.planStep = "week";
       saveLocal(); saveUi(); statusAfterEdit(); render(true); pushHistory();
