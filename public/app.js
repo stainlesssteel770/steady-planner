@@ -139,6 +139,15 @@ function planCells(week) { return ENGINE.cellVals(planDoc(week)); }
 function opPlan(week, cell, value, opts) { var f = {}; f[cell] = { v: value, ts: tsNow() }; queueOp({ type: "plan", week: week, f: f }, opts); }
 
 /* ---------------- scoring (1.3) ---------------- */
+/* Beta batch 1 item 1: extra counters beside "Tap when done" on habits
+   #3 (mealsPlan -> snackX) and #7 (noAlcohol -> drinkX). Logging extras
+   counts the habit as checked for the score, same as Done. */
+var EXTRAS = {
+  mealsPlan: { x: "snackX", btn: "Extra snack", count: function (n) { return n + " extra"; }, week: function (n) { return n + " extra snack" + (n === 1 ? "" : "s") + " this week"; } },
+  noAlcohol: { x: "drinkX", btn: "Had a drink", count: function (n) { return n + (n === 1 ? " drink" : " drinks"); }, week: function (n) { return n + (n === 1 ? " drink" : " drinks") + " this week"; } }
+};
+function extraCount(date, x) { var v = getDayF(date, x); return typeof v === "number" && v > 0 ? Math.floor(v) : 0; }
+function weekExtraTotal(date, x) { var sun = weekSunday(date), n = 0; for (var i = 0; i < 7; i++) n += extraCount(addDays(sun, i), x); return n; }
 function scoreDay(date) {
   if (isRest(date)) return null;
   var pre = isPreRest(date);
@@ -146,11 +155,11 @@ function scoreDay(date) {
   var items = {};
   items.protein = pre ? (g("proteinB") && g("proteinL")) : (g("proteinB") && g("proteinL") && g("proteinD"));
   items.veg = pre ? g("vegL") : (g("vegL") && g("vegD"));
-  items.mealsPlan = pre ? null : g("mealsPlan");
+  items.mealsPlan = pre ? null : (g("mealsPlan") || extraCount(date, "snackX") > 0);
   items.treat = pre ? null : g("treat");
   items.kitchenClosed = pre ? null : g("kitchenClosed");
   items.drinks = g("drinks");
-  items.noAlcohol = g("noAlcohol");
+  items.noAlcohol = g("noAlcohol") || extraCount(date, "drinkX") > 0;
   var steps = getDayF(date, "steps");
   items.steps = typeof steps === "number" && steps >= getSetting("stepGoal");
   items.workout = g("workout") || g("workoutOff");
@@ -158,7 +167,8 @@ function scoreDay(date) {
   var score = 0, of = 0;
   Object.keys(items).forEach(function (k) { if (items[k] !== null) { of++; if (items[k]) score++; } });
   var logged = ["proteinB", "proteinL", "proteinD", "vegL", "vegD", "mealsPlan", "treat", "kitchenClosed", "drinks", "noAlcohol", "bed", "workout", "workoutOff"].some(g)
-    || (typeof steps === "number" && steps > 0);
+    || (typeof steps === "number" && steps > 0)
+    || extraCount(date, "snackX") > 0 || extraCount(date, "drinkX") > 0;
   return { score: score, of: of, items: items, logged: logged, ratio: of ? score / of : 0, preRest: pre };
 }
 function workoutsInWeek(anyDate) {
@@ -356,7 +366,7 @@ function renderToday() {
   }
   if (sc.score === sc.of && sc.of > 0) h += '<div class="banner full">All ' + sc.of + '. That\'s a full day.</div>';
 
-  // Habits
+  // Habits (extra counters for #3/#7: see the global EXTRAS map)
   h += '<section class="card">';
   STEADY.habits.forEach(function (hab, idx) {
     var greyed = pre && hab.evening;
@@ -385,7 +395,17 @@ function renderToday() {
         '<button class="tick' + (wo ? " on" : "") + '" data-act="goto-workout">' + (wo ? "Done ✓" : "Start routine") + '</button>' +
         '<button class="tick' + (woff ? " on" : "") + '" data-act="tick" data-f="workoutOff"' + (wo ? " disabled" : "") + '>Rest day</button></div>';
     } else if (hab.field) {
-      h += '<div class="ticks"><button class="tick' + (getDayF(date, hab.field) ? " on" : "") + '" data-act="tick" data-f="' + hab.field + '">' + (getDayF(date, hab.field) ? "✓ Done" : "Tap when done") + '</button></div>';
+      h += '<div class="ticks"><button class="tick' + (getDayF(date, hab.field) ? " on" : "") + '" data-act="tick" data-f="' + hab.field + '">' + (getDayF(date, hab.field) ? "✓ Done" : "Tap when done") + '</button>';
+      var exH = EXTRAS[hab.field];
+      if (exH) {
+        var nH = extraCount(date, exH.x);
+        h += '<button class="tick" data-act="extra" data-f="' + hab.field + '">' + exH.btn + '</button>';
+        if (nH > 0) h += '<span class="extra-count">' + esc(exH.count(nH)) + '</span>' +
+          '<button class="tick" data-act="extra-undo" data-f="' + hab.field + '">−1</button>' +
+          '<button class="tick" data-act="extra-reset" data-f="' + hab.field + '">Reset</button>';
+      }
+      h += '</div>';
+      if (exH) { var wtH = weekExtraTotal(date, exH.x); if (wtH > 0) h += '<div class="habit-sub">' + esc(exH.week(wtH)) + '</div>'; }
     }
     h += '</div>';
     var done = sc.items[hab.id];
@@ -1350,6 +1370,14 @@ document.addEventListener("click", function (ev) {
     opDay(selDate, f, now);
     return;
   }
+  if (act === "extra" || act === "extra-undo" || act === "extra-reset") {
+    var fx = el.getAttribute("data-f"), exA = EXTRAS[fx];
+    if (!exA || isRest(selDate)) return;
+    var curX = extraCount(selDate, exA.x);
+    var nxtX = act === "extra" ? curX + 1 : act === "extra-undo" ? Math.max(0, curX - 1) : 0;
+    if (nxtX !== curX) { if (act === "extra") buzz(12); opDay(selDate, exA.x, nxtX); }
+    return;
+  }
   if (act === "checkin-save") {
     var wIn = document.getElementById("ciWeight"), waIn = document.getElementById("ciWaist");
     var wRaw = wIn ? wIn.value.trim() : "", waRaw = waIn ? waIn.value.trim() : "";
@@ -1702,7 +1730,7 @@ function sanitizeBackup(parsed) {
     return { v: raw.v, ts: ts };
   }
   var DAY_BOOL = ["proteinB", "proteinL", "proteinD", "vegL", "vegD", "mealsPlan", "treat", "kitchenClosed", "drinks", "noAlcohol", "workout", "workoutOff", "bed", "seconds", "caughtUp"];
-  var DAY_NUM = { steps: [0, 100000], weight: [50, 700], waist: [10, 90], water: [0, 100000] };
+  var DAY_NUM = { steps: [0, 100000], weight: [50, 700], waist: [10, 90], water: [0, 100000], snackX: [0, 50], drinkX: [0, 50] };
   var DAY_STR = ["workoutNote", "note"];
   function cleanDayField(name, c) {
     if (DAY_BOOL.indexOf(name) >= 0) {
