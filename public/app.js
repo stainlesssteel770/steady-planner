@@ -212,9 +212,38 @@ function pushHistory() {
   if (histGuard) return;
   try { history.pushState(histSnapshot(), ""); } catch (e) {}
 }
+/* Dialog history (bug 3): opening the picker or Settings pushes an entry;
+   Back closes the dialog instead of navigating. UI/Esc closes consume the
+   entry with a guarded history.back(). */
+var dlgHist = { which: null, guard: false, fromPop: false };
+function dlgEl(which) { return document.getElementById(which === "picker" ? "mealPickerDlg" : "settingsDlg"); }
+function pushDialogHistory(which) {
+  if (dlgHist.which === which) return;
+  dlgHist.which = which;
+  var st = histSnapshot(); st.dlg = which;
+  try { history.pushState(st, ""); } catch (e) {}
+}
+function onDialogClosed(which) {
+  if (dlgHist.fromPop) { dlgHist.fromPop = false; return; }
+  if (dlgHist.which !== which) return;
+  dlgHist.which = null;
+  dlgHist.guard = true;
+  try { history.back(); } catch (e) { dlgHist.guard = false; }
+}
 window.addEventListener("popstate", function (ev) {
+  if (dlgHist.guard) { dlgHist.guard = false; return; }
+  if (dlgHist.which) {
+    var w = dlgHist.which;
+    dlgHist.which = null;
+    dlgHist.fromPop = true;
+    var d = dlgEl(w);
+    if (d && d.open) d.close();
+    if (w === "picker") mpKey = null;
+    return;
+  }
   var st = ev.state;
   if (!st || !st.tab) return;
+  if (st.tab !== ui.tab) hideUndoToast();
   histGuard = true;
   ui.tab = st.tab;
   if (st.planStep) ui.planStep = st.planStep;
@@ -225,12 +254,14 @@ window.addEventListener("popstate", function (ev) {
   histGuard = false;
 });
 function gotoTab(tab, planStep) {
+  var changed = tab !== ui.tab || (!!planStep && planStep !== ui.planStep);
+  if (tab !== ui.tab) hideUndoToast();
   ui.tab = tab;
   if (planStep) ui.planStep = planStep;
   saveUi();
   render(true);
   window.scrollTo(0, 0);
-  pushHistory();
+  if (changed) pushHistory();
 }
 
 /* ---------------- Today tab (1.3) ---------------- */
@@ -622,14 +653,19 @@ function cookingForHTML(cells) {
   var srv = ENGINE.servingsOf(cells);
   var srvRows = [["srvB", "Breakfast", srv.B], ["srvL", "Lunch", srv.L], ["srvD", "Dinner", srv.D]];
   return '<section class="card"><h3 style="margin-top:0">Cooking for</h3>' + srvRows.map(function (r) {
-    return '<div class="row spread"><span><b>' + r[1] + '</b></span><span class="stepper">' +
+    return '<div class="row spread srv-row"><span class="srv-label"><b>' + r[1] + '</b></span><span class="stepper">' +
       '<button data-act="srv" data-k="' + r[0] + '" data-d="-1"' + (r[2] <= 1 ? " disabled" : "") + ' aria-label="Fewer people at ' + r[1].toLowerCase() + '">−</button>' +
-      '<b>' + r[2] + (r[2] === 1 ? " person" : " people") + '</b>' +
+      '<b class="srv-val">' + r[2] + (r[2] === 1 ? " person" : " people") + '</b>' +
       '<button data-act="srv" data-k="' + r[0] + '" data-d="1"' + (r[2] >= 20 ? " disabled" : "") + ' aria-label="More people at ' + r[1].toLowerCase() + '">+</button></span></div>';
   }).join("") + '<p class="muted small" style="margin-bottom:0">The shopping list and prep amounts scale to this. Your weekly staples and snacks stay sized for one.</p></section>';
 }
 function planProHTML(week, cells, ctx, pros) {
   var h = cookingForHTML(cells);
+  var lcP = readLastCleared();
+  if (lcP && lcP.week === week && !planHasMeals(week)) {
+    h += '<section class="card"><p class="muted small" style="margin-top:0">Week of ' + shortDate(week) + ' · cleared ' + esc(clearedWhenText(lcP.at)) + '</p>' +
+      '<button class="btn primary big" data-act="restore-cleared">Restore last week\'s plan</button></section>';
+  }
   h += '<section class="card"><h3>Pick this week\'s proteins</h3><div class="pgrid">';
   PD.PROTEINS.forEach(function (p) {
     var picked = pros.indexOf(p[0]) >= 0;
@@ -753,6 +789,7 @@ function planShopHTML(week, cells, ctx, shop, ticked, total) {
   }
   h += '<section class="card"><div class="row wrap"><button class="btn" data-act="uncheck-all">Uncheck all</button>' +
     '<button class="btn" data-act="share-shop">Share list</button>' +
+    '<button class="btn" data-act="share-shop-unticked">Copy unticked only</button>' +
     '<button class="btn primary" data-act="plan-step" data-s="prep">Next: prep day</button></div></section>';
   return h;
 }
@@ -889,8 +926,23 @@ function hideUndoToast() {
   undoToastTimer = null;
   if (undoToastEl) { undoToastEl.remove(); undoToastEl = null; }
 }
-function showUndoToast(msg, undoFn) {
+function mountToast(el, ms) {
   hideUndoToast();
+  document.body.appendChild(el);
+  undoToastEl = el;
+  undoToastTimer = setTimeout(hideUndoToast, ms);
+}
+function showInfoToast(msg) {
+  var el = document.createElement("div");
+  el.className = "undo-toast info-toast";
+  el.setAttribute("role", "status");
+  var span = document.createElement("span");
+  span.textContent = msg;
+  el.appendChild(span);
+  mountToast(el, 3500);
+}
+function showUndoToast(msg, undoFn) {
+  var originTab = ui.tab;
   var el = document.createElement("div");
   el.className = "undo-toast";
   el.setAttribute("role", "status");
@@ -899,12 +951,14 @@ function showUndoToast(msg, undoFn) {
   var btn = document.createElement("button");
   btn.type = "button";
   btn.textContent = "Undo";
-  btn.addEventListener("click", function () { hideUndoToast(); if (undoFn) undoFn(); });
+  btn.addEventListener("click", function () {
+    hideUndoToast();
+    if (undoFn) undoFn();
+    if (ui.tab !== originTab) showInfoToast("Undone ✓");
+  });
   el.appendChild(span);
   el.appendChild(btn);
-  document.body.appendChild(el);
-  undoToastEl = el;
-  undoToastTimer = setTimeout(hideUndoToast, 5000);
+  mountToast(el, 5000);
 }
 function snapshotPlan(week) { return state.plans[week] ? JSON.parse(JSON.stringify(state.plans[week])) : null; }
 function restorePlan(week, snap) {
@@ -912,6 +966,63 @@ function restorePlan(week, snap) {
   saveLocal();
   statusAfterEdit();
   render(true);
+}
+/* Surgical undo (bug 7): restore each affected key to its BEFORE value only
+   if its current value still equals its AFTER value (not edited since). */
+function sameJSON(a, b) { return JSON.stringify(a === undefined ? null : a) === JSON.stringify(b === undefined ? null : b); }
+function surgicalUndo(week, beforeDoc, afterDoc, keys) {
+  var restored = 0;
+  function ensureDoc() {
+    var cur = state.plans[week];
+    if (!cur) { cur = { f: {} }; state.plans[week] = cur; }
+    if (!cur.f) cur.f = {};
+    return cur;
+  }
+  keys.forEach(function (k) {
+    if (k === "__cleared") {
+      var curC = state.plans[week] ? state.plans[week].cleared : undefined;
+      var aftC = afterDoc ? afterDoc.cleared : undefined;
+      var befC = beforeDoc ? beforeDoc.cleared : undefined;
+      if (sameJSON(curC, aftC) && !sameJSON(curC, befC)) {
+        if (befC === undefined) { if (state.plans[week]) delete state.plans[week].cleared; }
+        else ensureDoc().cleared = befC;
+        restored++;
+      }
+      return;
+    }
+    var curV = state.plans[week] && state.plans[week].f ? state.plans[week].f[k] : undefined;
+    var aftV = afterDoc && afterDoc.f ? afterDoc.f[k] : undefined;
+    var befV = beforeDoc && beforeDoc.f ? beforeDoc.f[k] : undefined;
+    if (sameJSON(curV, aftV) && !sameJSON(curV, befV)) {
+      if (befV === undefined) { if (state.plans[week] && state.plans[week].f) delete state.plans[week].f[k]; }
+      else ensureDoc().f[k] = JSON.parse(JSON.stringify(befV));
+      restored++;
+    }
+  });
+  saveLocal();
+  statusAfterEdit();
+  render(true);
+  return restored;
+}
+/* Add 1: last cleared week stays restorable until the next Build. */
+function readLastCleared() {
+  var lc = lsGet("steady.lastCleared", null);
+  if (!lc || typeof lc !== "object" || !lc.week || !lc.doc || typeof lc.doc !== "object" || !lc.doc.f) return null;
+  return lc;
+}
+function clearedWhenText(at) {
+  if (!at || typeof at !== "number") return "";
+  var days = Math.round((parseLocal(todayStr) - parseLocal(fmtDate(new Date(at)))) / 86400000);
+  if (days <= 0) return "today";
+  if (days === 1) return "yesterday";
+  if (days > 1 && days < 14) return days + " days ago";
+  return "on " + fmtDate(new Date(at));
+}
+function undoOrTell(week, beforeDoc, afterDoc, keys, onRestored) {
+  var n = surgicalUndo(week, beforeDoc, afterDoc, keys);
+  if (n > 0) { if (onRestored) onRestored(); }
+  else showInfoToast("Nothing left to undo — those were changed since.");
+  return n;
 }
 
 /* ---------------- share / copy lists ---------------- */
@@ -922,7 +1033,6 @@ function shareOrCopy(title, text, btn) {
     btn.textContent = "Copied ✓";
     setTimeout(function () { btn.textContent = old; }, 2000);
   }
-  if (navigator.share) { try { navigator.share({ title: title, text: text }).catch(function () {}); } catch (e) {} return; }
   function fallback() {
     var ta = document.createElement("textarea");
     ta.value = text;
@@ -932,24 +1042,39 @@ function shareOrCopy(title, text, btn) {
     try { document.execCommand("copy"); copied(); } catch (e) { window.alert(text); }
     ta.remove();
   }
-  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(copied, fallback);
-  else fallback();
+  function doCopy() {
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(copied, fallback);
+    else fallback();
+  }
+  if (navigator.share) {
+    var shareP;
+    try { shareP = navigator.share({ title: title, text: text }); } catch (e) { shareP = Promise.reject(e); }
+    Promise.resolve(shareP).then(function () {}, function (err) {
+      if (err && err.name === "AbortError") return;
+      doCopy();
+    });
+    return;
+  }
+  doCopy();
 }
-function shopShareText(week) {
+function shopShareText(week, untickedOnly) {
   var cells = planCells(week), ctx = planCtx(week), shop = ENGINE.shopping(ctx, cells);
   var out = ["Shopping list · " + shortDate(week) + " – " + shortDate(addDays(week, 5))];
+  var items = 0;
   shop.sections.forEach(function (sec) {
     if (sec.key === "mine") {
-      if (!shop.customs.length) return;
+      var cs = shop.customs.filter(function (c) { return !untickedOnly || !cells["g_c_" + c.id]; });
+      if (!cs.length) return;
       out.push("", sec.name);
-      shop.customs.forEach(function (c) { out.push((cells["g_c_" + c.id] ? "✓ " : "• ") + c.n + (c.q ? " — " + c.q : "")); });
+      cs.forEach(function (c) { items++; out.push((cells["g_c_" + c.id] ? "✓ " : "• ") + c.n + (c.q ? " — " + c.q : "")); });
       return;
     }
-    if (!sec.lines.length) return;
+    var ls = sec.lines.filter(function (l) { return !untickedOnly || !cells["g_" + l.id]; });
+    if (!ls.length) return;
     out.push("", sec.name);
-    sec.lines.forEach(function (l) { out.push((cells["g_" + l.id] ? "✓ " : "• ") + l.name + (l.qty ? " — " + l.qty : " — check you have")); });
+    ls.forEach(function (l) { items++; out.push((cells["g_" + l.id] ? "✓ " : "• ") + l.name + (l.qty ? " — " + l.qty : " — check you have")); });
   });
-  return out.join("\n");
+  return { text: out.join("\n"), items: items };
 }
 function prepShareText(week) {
   var cells = planCells(week), ctx = planCtx(week), prep = ENGINE.prep(ctx, cells, getSetting("prepDay"));
@@ -979,6 +1104,13 @@ function prepShareText(week) {
 
 /* ---------------- meal picker ---------------- */
 var mpKey = null;
+/* The planner's rule: only a Meat lunch before a Dairy dinner, and Fish with
+   Meat on the same day, are blocked. Dairy lunch + Meat dinner is fine. */
+function pickerBlocked(tag, slot, otherTag) {
+  if (!tag || !otherTag) return false;
+  if (slot === "L") return (tag === "M" && otherTag === "D") || (tag === "F" && otherTag === "M") || (tag === "M" && otherTag === "F");
+  return (tag === "D" && otherTag === "M") || (tag === "F" && otherTag === "M") || (tag === "M" && otherTag === "F");
+}
 function openMealPicker(key) {
   var week = currentPlanWeek(), cells = planCells(week), ctx = planCtx(week);
   var m = /^m(\d)([LD])$/.exec(key);
@@ -989,34 +1121,80 @@ function openMealPicker(key) {
   var other = ENGINE.resolve(ctx, cells, "m" + dow + (slot === "L" ? "D" : "L"));
   var otherTag = other && other.meal ? other.meal.t : null;
   document.getElementById("mpTitle").textContent = ENGINE.DAYN[dow] + " " + (slot === "L" ? "lunch" : "dinner") + " — pick a meal";
-  var html = "";
+  var hidMD = false, hidFish = false;
+  function noteBlocked(tag) {
+    if ((tag === "F" && otherTag === "M") || (tag === "M" && otherTag === "F")) hidFish = true;
+    else hidMD = true;
+  }
+  var loHTML = "";
   if (slot === "L" && dow > 0) {
     var prevD = ENGINE.resolve(ctx, cells, "m" + (dow - 1) + "D");
     if (prevD && prevD.meal && prevD.meal.lo) {
-      html += '<button class="mp-opt" data-act="mp-lo">' + tagPill(prevD.meal.t) + '<span>Leftovers: ' + esc(prevD.meal.n) + '</span><span class="mp-min">reheat</span></button>';
+      if (pickerBlocked(prevD.meal.t, "L", otherTag)) noteBlocked(prevD.meal.t);
+      else loHTML = '<button class="mp-opt" data-act="mp-lo">' + tagPill(prevD.meal.t) + '<span>Leftovers: ' + esc(prevD.meal.n) + '</span><span class="mp-min">reheat</span></button>';
     }
   }
   var list = Object.keys(PD.MEALS).map(function (id) { return PD.MEALS[id]; }).filter(function (meal) {
     if (pros.indexOf(meal.p) < 0) return false;
     if (meal.s.indexOf(slot) < 0) return false;
-    if (otherTag === "D" && meal.t === "M") return false;
-    if (otherTag === "M" && meal.t === "D") return false;
+    if (pickerBlocked(meal.t, slot, otherTag)) { noteBlocked(meal.t); return false; }
     return true;
   });
   list.sort(function (a, b) { return a.n < b.n ? -1 : a.n > b.n ? 1 : 0; });
+  var html = "";
+  if (hidMD || hidFish) {
+    var hints = [];
+    if (hidMD) hints.push(slot === "L" ? "Meat isn't shown: tonight is a dairy dinner." : "Dairy isn't shown: lunch today is meat.");
+    if (hidFish) hints.push("Fish and meat aren't mixed on the same day, so some meals are hidden.");
+    html += '<p class="muted small mp-hint">' + esc(hints.join(" ")) + '</p>';
+  }
+  html += loHTML;
   list.forEach(function (meal) {
-    html += '<button class="mp-opt" data-act="mp-pick" data-id="' + meal.id + '">' + tagPill(meal.t) + '<span>' + esc(meal.n) + '</span><span class="mp-min">' + meal.min + ' min</span></button>';
+    var flags = "";
+    if (meal.lo) flags += '<span class="mp-flag">leftovers OK</span>';
+    if (meal.fresh) flags += '<span class="mp-flag">cook fresh</span>';
+    html += '<button class="mp-opt" data-act="mp-pick" data-id="' + meal.id + '">' + tagPill(meal.t) + '<span>' + esc(meal.n) + '</span>' + flags + '<span class="mp-min">' + meal.min + ' min</span></button>';
   });
-  if (!list.length && !html) html = '<p class="muted">No library meals match this slot with the week\'s proteins. Pick proteins first, or shuffle instead.</p>';
+  if (!list.length && !loHTML) html += '<p class="muted">No library meals match this slot with the week\'s proteins. Pick proteins first, or shuffle instead.</p>';
   html += '<button class="mp-opt" data-act="mp-clear"><span>Clear this slot</span></button>';
   document.getElementById("mpList").innerHTML = html;
   var dlg = document.getElementById("mealPickerDlg");
-  if (typeof dlg.showModal === "function" && !dlg.open) dlg.showModal();
+  if (typeof dlg.showModal === "function" && !dlg.open) { dlg.showModal(); pushDialogHistory("picker"); }
+  requestAnimationFrame(function () {
+    var lst = document.getElementById("mpList");
+    if (lst) lst.scrollTop = 0;
+    var inner = dlg.querySelector(".dlg-inner");
+    if (inner) inner.scrollTop = 0;
+    dlg.scrollTop = 0;
+  });
 }
 function closeMealPicker() {
   var dlg = document.getElementById("mealPickerDlg");
   if (dlg && dlg.open) dlg.close();
   mpKey = null;
+}
+/* Bug 6: after a picker pick/clear on a dinner, re-check tomorrow's
+   leftovers lunch against the new dinner. */
+function afterDinnerPick(week, dinnerKey) {
+  var d = +dinnerKey.charAt(1);
+  if (d > 4) return;
+  var cells = planCells(week), ctx = planCtx(week);
+  var lunchKey = "m" + (d + 1) + "L";
+  var lc = cells[lunchKey];
+  if (!lc || !lc.lo) return;
+  if (lc.k) { showInfoToast("Tomorrow's lunch is locked as leftovers — the dinner changed, so check it."); return; }
+  var dn = ENGINE.resolve(ctx, cells, dinnerKey);
+  if (dn && dn.meal && dn.meal.lo) return;
+  var replaced = false;
+  if (ENGINE.proteinsOf(cells).length >= 2) {
+    var out = ENGINE.shuffleOne(ctx, cells, lunchKey, Math.random);
+    if (out && out[lunchKey] && out[lunchKey].id) { opPlan(week, lunchKey, out[lunchKey], { silent: true }); replaced = true; }
+  }
+  if (!replaced) opPlan(week, lunchKey, null, { silent: true });
+  saveLocal();
+  statusAfterEdit();
+  render(true);
+  showInfoToast("Tomorrow's leftovers lunch was updated — the new dinner doesn't make leftovers.");
 }
 
 /* ---------------- actions ---------------- */
@@ -1038,6 +1216,7 @@ function writeCells(week, newCells, onlyKeys) {
   });
 }
 function buildWeek(week) {
+  try { localStorage.removeItem("steady.lastCleared"); } catch (e) {}
   var cells = planCells(week);
   var hasC = Object.keys(cells).some(function (k) { return k.indexOf("c_") === 0; });
   var hasH = Object.keys(cells).some(function (k) { return k.indexOf("h_") === 0; });
@@ -1167,12 +1346,13 @@ document.addEventListener("click", function (ev) {
   // plan
   if (act === "plan-week") {
     var wNew = el.getAttribute("data-w");
+    var wChanged = wNew !== currentPlanWeek();
     ui.planWs = wNew;
     if (!planHasMeals(wNew)) ui.planStep = "pro";
-    saveUi(); render(true); pushHistory();
+    saveUi(); render(true); if (wChanged) pushHistory();
     return;
   }
-  if (act === "plan-step") { ui.planStep = el.getAttribute("data-s"); saveUi(); render(true); pushHistory(); return; }
+  if (act === "plan-step") { var sNew = el.getAttribute("data-s"); var stChanged = sNew !== ui.planStep; ui.planStep = sNew; saveUi(); render(true); if (stChanged) pushHistory(); return; }
   if (act === "pro") {
     var week = currentPlanWeek(), cells = planCells(week), id = el.getAttribute("data-id");
     var pros = ENGINE.proteinsOf(cells), ix = pros.indexOf(id);
@@ -1221,9 +1401,16 @@ document.addEventListener("click", function (ev) {
     if (valM && curM && curM.k) valM.k = true;
     closeMealPicker();
     opPlan(weekM, keyM, valM);
+    if (keyM.slice(-1) === "D") afterDinnerPick(weekM, keyM);
     return;
   }
-  if (act === "share-shop") { shareOrCopy("Steady shopping list", shopShareText(currentPlanWeek()), el); return; }
+  if (act === "share-shop") { shareOrCopy("Steady shopping list", shopShareText(currentPlanWeek()).text, el); return; }
+  if (act === "share-shop-unticked") {
+    var unt = shopShareText(currentPlanWeek(), true);
+    if (!unt.items) { showInfoToast("Everything's ticked — nothing left to copy."); return; }
+    shareOrCopy("Shopping list — still to buy", unt.text, el);
+    return;
+  }
   if (act === "share-prep") { shareOrCopy("Steady prep", prepShareText(currentPlanWeek()), el); return; }
   if (act === "lock") {
     var week5 = currentPlanWeek(), cells5 = planCells(week5), key5 = el.getAttribute("data-k");
@@ -1241,10 +1428,29 @@ document.addEventListener("click", function (ev) {
   if (act === "week-clear") {
     var week7 = currentPlanWeek();
     var snap7 = snapshotPlan(week7);
+    var keys7 = Object.keys(ENGINE.cellVals(snap7 || { f: {} })).concat(["__cleared"]);
+    if (snap7) lsSet("steady.lastCleared", { week: week7, doc: snap7, at: Date.now() });
     ui.planStep = "pro"; saveUi();
     queueOp({ type: "plan", week: week7, clear: tsNow(), f: {} });
+    var after7 = snapshotPlan(week7);
     pushHistory();
-    showUndoToast("Week cleared.", function () { restorePlan(week7, snap7); });
+    showUndoToast("Week cleared.", function () {
+      undoOrTell(week7, snap7, after7, keys7, function () {
+        var lc7 = readLastCleared();
+        if (lc7 && lc7.week === week7) try { localStorage.removeItem("steady.lastCleared"); } catch (e) {}
+      });
+    });
+    return;
+  }
+  if (act === "restore-cleared") {
+    var lcR = readLastCleared();
+    if (lcR) {
+      state.plans[lcR.week] = JSON.parse(JSON.stringify(lcR.doc));
+      try { localStorage.removeItem("steady.lastCleared"); } catch (e) {}
+      ui.planWs = lcR.week;
+      ui.planStep = "week";
+      saveLocal(); saveUi(); statusAfterEdit(); render(true); pushHistory();
+    }
     return;
   }
   if (act === "gtick") {
@@ -1264,18 +1470,22 @@ document.addEventListener("click", function (ev) {
   if (act === "uncheck-all") {
     var week9 = currentPlanWeek(), cells9 = planCells(week9);
     var snap9 = snapshotPlan(week9);
-    Object.keys(cells9).forEach(function (k) { if (k.indexOf("g_") === 0 && cells9[k]) opPlan(week9, k, false, { silent: true }); });
+    var keys9 = [];
+    Object.keys(cells9).forEach(function (k) { if (k.indexOf("g_") === 0 && cells9[k]) { keys9.push(k); opPlan(week9, k, false, { silent: true }); } });
     saveLocal(); statusAfterEdit(); render(true);
-    showUndoToast("Shopping list unchecked.", function () { restorePlan(week9, snap9); });
+    var after9 = snapshotPlan(week9);
+    showUndoToast("Shopping list unchecked.", function () { undoOrTell(week9, snap9, after9, keys9); });
     return;
   }
   if (act === "prepday") { opSettings("prepDay", +el.getAttribute("data-d")); return; }
   if (act === "prep-clear") {
     var weekA = currentPlanWeek(), cellsA = planCells(weekA);
     var snapA = snapshotPlan(weekA);
-    Object.keys(cellsA).forEach(function (k) { if (k.indexOf("t_") === 0 && cellsA[k]) opPlan(weekA, k, false, { silent: true }); });
+    var keysA = [];
+    Object.keys(cellsA).forEach(function (k) { if (k.indexOf("t_") === 0 && cellsA[k]) { keysA.push(k); opPlan(weekA, k, false, { silent: true }); } });
     saveLocal(); statusAfterEdit(); render(true);
-    showUndoToast("Prep ticks cleared.", function () { restorePlan(weekA, snapA); });
+    var afterA = snapshotPlan(weekA);
+    showUndoToast("Prep ticks cleared.", function () { undoOrTell(weekA, snapA, afterA, keysA); });
     return;
   }
   // settings dialog buttons
@@ -1289,6 +1499,10 @@ document.addEventListener("click", function (ev) {
 });
 document.addEventListener("input", function (ev) {
   if (ev.target && ev.target.id === "stepsInput") saveSteps(ev.target, false);
+  if (ev.target && (ev.target.id === "setStepGoal" || ev.target.id === "setWorkoutTarget")) {
+    var se1 = document.getElementById("setError");
+    if (se1) { se1.textContent = ""; se1.hidden = true; }
+  }
   if (ev.target && (ev.target.id === "ciWeight" || ev.target.id === "ciWaist")) {
     var ce = document.getElementById("ciError");
     if (ce) { ce.textContent = ""; ce.hidden = true; }
@@ -1309,6 +1523,8 @@ document.addEventListener("keydown", function (ev) {
 /* ---------------- settings dialog (1.8) ---------------- */
 function openSettings() {
   var dlg = document.getElementById("settingsDlg");
+  var se0 = document.getElementById("setError");
+  if (se0) { se0.textContent = ""; se0.hidden = true; }
   document.getElementById("setStepGoal").value = getSetting("stepGoal");
   document.getElementById("setWorkoutTarget").value = getSetting("workoutTarget");
   var rn = restName(selDate), ov = getDayF(selDate, "restOverride");
@@ -1320,15 +1536,25 @@ function openSettings() {
   document.getElementById("setRestCtl").innerHTML = ctl;
   var lbEl2 = document.getElementById("lastBackupLine");
   if (lbEl2) { var lb2 = lastBackupInfo(); lbEl2.textContent = lb2.text; lbEl2.className = "small " + (lb2.warn ? "warn" : "muted"); }
-  if (typeof dlg.showModal === "function" && !dlg.open) dlg.showModal();
+  if (typeof dlg.showModal === "function" && !dlg.open) { dlg.showModal(); pushDialogHistory("settings"); }
 }
 document.getElementById("gearBtn").addEventListener("click", openSettings);
 document.getElementById("mpClose").addEventListener("click", closeMealPicker);
-document.getElementById("setSave").addEventListener("click", function () {
-  var sg = Number(document.getElementById("setStepGoal").value);
-  var wt = Number(document.getElementById("setWorkoutTarget").value);
-  if (sg >= 1000 && sg <= 40000 && sg !== getSetting("stepGoal")) opSettings("stepGoal", sg);
-  if (wt >= 1 && wt <= 7 && wt !== getSetting("workoutTarget")) opSettings("workoutTarget", Math.round(wt));
+document.getElementById("mealPickerDlg").addEventListener("close", function () { mpKey = null; onDialogClosed("picker"); });
+document.getElementById("settingsDlg").addEventListener("close", function () { onDialogClosed("settings"); });
+document.getElementById("setSave").addEventListener("click", function (ev) {
+  var errEl = document.getElementById("setError");
+  function setErr(msg) { if (errEl) { errEl.textContent = msg; errEl.hidden = !msg; } }
+  var sgRaw = document.getElementById("setStepGoal").value.trim();
+  var wtRaw = document.getElementById("setWorkoutTarget").value.trim();
+  var errs = [];
+  var sg = null, wt = null;
+  if (sgRaw !== "") { sg = Number(sgRaw); if (!(sg >= 1000 && sg <= 40000)) errs.push("Step goal must be between 1,000 and 40,000."); }
+  if (wtRaw !== "") { wt = Number(wtRaw); if (!(wt >= 1 && wt <= 7)) errs.push("Workouts per week must be between 1 and 7."); }
+  if (errs.length) { setErr(errs.join(" ")); if (ev) ev.preventDefault(); return; }
+  setErr("");
+  if (sg !== null && sg !== getSetting("stepGoal")) opSettings("stepGoal", sg);
+  if (wt !== null && wt !== getSetting("workoutTarget")) opSettings("workoutTarget", Math.round(wt));
 });
 
 
@@ -1543,7 +1769,7 @@ document.getElementById("restoreInput").addEventListener("change", function (ev)
     var cleaned = sanitizeBackup(parsed);
     state = cleaned.state;
     saveLocal();
-    window.alert(cleaned.fixed > 0 ? "Backup restored — " + cleaned.fixed + " bad values were ignored." : "Backup restored.");
+    window.alert(cleaned.fixed === 1 ? "Backup restored — 1 bad value was ignored." : cleaned.fixed > 1 ? "Backup restored — " + cleaned.fixed + " bad values were ignored." : "Backup restored.");
     var dlg = document.getElementById("settingsDlg");
     if (dlg && dlg.open) dlg.close();
     setStatus("Saved on this phone");
