@@ -184,6 +184,11 @@
     var used = {}, longCount = 0, rotIdx = 0;
     // Locked slots are kept; their meals count as used.
     sl.forEach(function (s) {
+      /* Beta batch 1 item 3: past days are history. Their cells pass
+         through untouched — never re-rolled, never refilled — so a
+         leftovers lunch can only ever point at a dinner that was really
+         in the saved plan, and prep/shopping stay about shown days. */
+      if (s.past) return;
       var raw = v[s.key];
       if (raw && raw.k) {
         var r = resolve(ctx, cells, s.key);
@@ -223,7 +228,7 @@
     }
     // Dinners first, rotating proteins, skipping last night's protein.
     sl.filter(function (s) { return s.slot === "D"; }).forEach(function (s) {
-      if (out[s.key]) return; // locked
+      if (s.past || out[s.key]) return; // locked (or history)
       var prevP = prevDinnerProtein(s.dow);
       var order = [];
       for (var i = 0; i < rotation.length; i++) {
@@ -243,6 +248,7 @@
     // Lunches next.
     var leftoverPlaced = false;
     sl.filter(function (s) { return s.slot === "L"; }).forEach(function (s) {
+      if (s.past) return; // history (item 3)
       if (out[s.key]) { var lr = resolve(ctx, out, s.key); if (lr && lr.lo) leftoverPlaced = true; return; }
       var d = s.dow;
       var tonight = out["m" + d + "D"], tonightMeal = tonight && tonight.id ? MEALS[tonight.id] : null;
@@ -489,6 +495,7 @@
       return { allOK: allOK, anyFrozen: anyFrozen, freezableCover: freezableCover };
     }
     ck.eatings.forEach(function (e) {
+      if (e.past) return; // Beta batch 1 item 3: prep lists only days shown in Week
       var label = (e.slot === "L" ? "Lunch" : "Dinner");
       if (e.date < prepDate) {
         before.push({ key: e.key, dow: e.dow, slot: e.slot, date: e.date, name: e.lo ? "Leftovers: " + e.meal.n : e.meal.n, lo: e.lo });
@@ -512,9 +519,9 @@
     });
     // Extra freezer portions from pot bumps.
     ck.bumped.forEach(function (id) {
-      var has = ck.eatings.some(function (e) { return e.mealId === id && !e.lo; });
+      var has = ck.eatings.some(function (e) { return e.mealId === id && !e.lo && !e.past; });
       if (!has) return;
-      var first = ck.eatings.filter(function (e) { return e.mealId === id && !e.lo; })[0];
+      var first = ck.eatings.filter(function (e) { return e.mealId === id && !e.lo && !e.past; })[0];
       portions.push({ key: first.key + "x", tick: "p" + first.key + "x", dow: first.dow, slot: first.slot, date: first.date, name: MEALS[id].n + " (extra)", where: "freezer", extra: true, people: 1 });
     });
     // Breakfast components for breakfast days on/after the prep day.
