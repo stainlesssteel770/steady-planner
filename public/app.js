@@ -1159,8 +1159,8 @@ function openMealPicker(key) {
   html += loHTML;
   list.forEach(function (meal) {
     var flags = "";
-    if (meal.lo) flags += '<span class="mp-flag">leftovers OK</span>';
-    if (meal.fresh) flags += '<span class="mp-flag">cook fresh</span>';
+    if (meal.lo && meal.fresh) flags += '<span class="mp-flag">cook fresh, leftovers OK</span>';
+    else { if (meal.lo) flags += '<span class="mp-flag">leftovers OK</span>'; if (meal.fresh) flags += '<span class="mp-flag">cook fresh</span>'; }
     html += '<button class="mp-opt" data-act="mp-pick" data-id="' + meal.id + '">' + tagPill(meal.t) + '<span class="mp-mid"><span>' + esc(meal.n) + '</span>' + (flags ? '<span>' + flags + '</span>' : '') + '</span><span class="mp-min">' + meal.min + ' min</span></button>';
   });
   if (!list.length && !loHTML) html += '<p class="muted">No library meals match this slot with the week\'s proteins. Pick proteins first, or shuffle instead.</p>';
