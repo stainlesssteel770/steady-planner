@@ -1454,6 +1454,18 @@ document.addEventListener("click", function (ev) {
       var msgS = "Changed " + ENGINE.DAYN[+key.charAt(1)] + " " + slotS + ".";
       var otherS = chS.filter(function (k) { return k !== key; });
       if (otherS.length) msgS = msgS.slice(0, -1) + ". " + ENGINE.DAYN[+otherS[0].charAt(1)] + "'s lunch updated too.";
+      /* Batch 4 item 2: picker parity — if tomorrow's lunch is LOCKED
+         leftovers and the new dinner invalidates them (no leftovers, or
+         leftovers blocked by tomorrow's own dinner), say so in the toast. */
+      if (key.slice(-1) === "D") {
+        var dowS = +key.charAt(1);
+        var lvS = cellsAS["m" + (dowS + 1) + "L"], ndS = cellsAS[key], tdS = cellsAS["m" + (dowS + 1) + "D"];
+        var ndMealS = ndS && ndS.id ? PD.MEALS[ndS.id] : null;
+        var tdTagS = tdS && tdS.id ? PD.MEALS[tdS.id].t : null;
+        if (lvS && lvS.lo && lvS.k && ndMealS && (!ndMealS.lo || pickerBlocked(ndMealS.t, "L", tdTagS))) {
+          msgS = msgS.slice(0, -1) + ". " + ENGINE.DAYN[dowS + 1] + "'s lunch is locked as leftovers — check it.";
+        }
+      }
       showUndoToast(msgS, function () {
         var nowS = planCells(week4), didS = false;
         chS.forEach(function (k) {
