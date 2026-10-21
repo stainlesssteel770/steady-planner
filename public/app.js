@@ -1434,11 +1434,35 @@ document.addEventListener("click", function (ev) {
   }
   if (act === "shuffle-one") {
     var week4 = currentPlanWeek(), ctx4 = planCtx(week4), key = el.getAttribute("data-k");
-    var out = ENGINE.shuffleOne(ctx4, planCells(week4), key, Math.random);
+    var cellsB4 = planCells(week4);
+    var out = ENGINE.shuffleOne(ctx4, cellsB4, key, Math.random);
     var keys = [key];
-    if (key.slice(-1) === "D") keys.push("m" + (+key.charAt(1) + 1) + "L");
+    /* Batch 3 item 2: also write the SAME-day lunch for dinners — the
+       engine's reverse re-pick (batch 1 item 2) was computed but dropped
+       here because only tomorrow's lunch key was listed. */
+    if (key.slice(-1) === "D") { keys.push(key.slice(0, 2) + "L"); keys.push("m" + (+key.charAt(1) + 1) + "L"); }
+    var prevS = {}, postS = {};
+    keys.forEach(function (k) { prevS[k] = cellsB4[k] === undefined ? null : cellsB4[k]; });
     writeCells(week4, out, keys);
     saveLocal(); statusAfterEdit(); render(true);
+    var cellsAS = planCells(week4);
+    keys.forEach(function (k) { postS[k] = cellsAS[k] === undefined ? null : cellsAS[k]; });
+    var chS = keys.filter(function (k) { return JSON.stringify(prevS[k]) !== JSON.stringify(postS[k]); });
+    if (chS.length) {
+      var slotS = key.slice(-1) === "D" ? "dinner" : "lunch";
+      var msgS = "Changed " + ENGINE.DAYN[+key.charAt(1)] + " " + slotS + ".";
+      var otherS = chS.filter(function (k) { return k !== key; });
+      if (otherS.length) msgS = msgS.slice(0, -1) + ". " + ENGINE.DAYN[+otherS[0].charAt(1)] + "'s lunch updated too.";
+      showUndoToast(msgS, function () {
+        var nowS = planCells(week4), didS = false;
+        chS.forEach(function (k) {
+          var curS2 = nowS[k] === undefined ? null : nowS[k];
+          if (JSON.stringify(curS2) === JSON.stringify(postS[k])) { opPlan(week4, k, prevS[k], { silent: true }); didS = true; }
+        });
+        if (didS) { saveLocal(); render(true); }
+        return didS;
+      });
+    }
     return;
   }
   if (act === "meal-pick") { openMealPicker(el.getAttribute("data-k")); return; }
