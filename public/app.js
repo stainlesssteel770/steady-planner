@@ -1439,6 +1439,16 @@ document.addEventListener("click", function (ev) {
     var after7 = snapshotPlan(week7);
     pushHistory();
     showUndoToast("Week cleared.", function () {
+      /* Bug 8: week-clear undo is all-or-nothing — if any affected key was
+         edited since the clear, restore nothing at all. */
+      var cur7 = snapshotPlan(week7);
+      var dirty7 = keys7.some(function (k) {
+        if (k === "__cleared") return !sameJSON(cur7 ? cur7.cleared : undefined, after7 ? after7.cleared : undefined);
+        var curV = cur7 && cur7.f ? cur7.f[k] : undefined;
+        var aftV = after7 && after7.f ? after7.f[k] : undefined;
+        return !sameJSON(curV, aftV);
+      });
+      if (dirty7) { showInfoToast("Nothing left to undo — those were changed since."); return; }
       undoOrTell(week7, snap7, after7, keys7, function () {
         var lc7 = readLastCleared();
         if (lc7 && lc7.week === week7) try { localStorage.removeItem("steady.lastCleared"); } catch (e) {}
