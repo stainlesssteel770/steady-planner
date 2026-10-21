@@ -259,10 +259,21 @@
       if (!order.length) order = rotation.slice();
       // offset the lunch rotation from the dinners
       if (order.length > 1) { var sh = (rotIdx + d) % order.length; order = order.slice(sh).concat(order.slice(0, sh)); }
+      var dairyDinner = !!(tonightMeal && tonightMeal.t === "D");
       var meal = chooseMeal("L", order, {
-        excludeTag: tonightMeal && tonightMeal.t === "D" ? "M" : null,
+        excludeTag: dairyDinner ? "M" : null,
+        excludeTagHard: dairyDinner,
         preferNotFresh: true
       });
+      if (!meal && dairyDinner) {
+        // Hard-excluding meat with the avoid-filtered order found nothing:
+        // widen to every selected protein before ever accepting a meat lunch.
+        meal = chooseMeal("L", rotation, {
+          excludeTag: "M",
+          excludeTagHard: true,
+          preferNotFresh: true
+        });
+      }
       if (meal) { out[s.key] = { id: meal.id }; used[meal.id] = true; if (meal.min >= 90) longCount++; }
     });
     if (!out.bk) out.bk = PD.BREAKFAST_DEFAULT.slice();
