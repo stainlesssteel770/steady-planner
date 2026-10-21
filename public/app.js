@@ -751,7 +751,7 @@ function planWeekHTML(week, cells, ctx) {
   }
   h += '<section class="card"><div class="row wrap"><button class="btn" data-act="shuffle-all">🔀 Shuffle all unlocked</button>' +
     '<button class="btn primary" data-act="plan-step" data-s="shop">Next: shopping list</button></div>' +
-    '<p><button class="danger-link" data-act="week-clear">Start this week over</button></p></section>';
+    (planHasMeals(week) ? '<p><button class="danger-link" data-act="week-clear">Start this week over</button></p>' : '') + '</section>';
   return h;
 }
 function planShopHTML(week, cells, ctx, shop, ticked, total) {
@@ -1432,7 +1432,7 @@ document.addEventListener("click", function (ev) {
     var week7 = currentPlanWeek();
     var snap7 = snapshotPlan(week7);
     var keys7 = Object.keys(ENGINE.cellVals(snap7 || { f: {} })).concat(["__cleared"]);
-    if (snap7) lsSet("steady.lastCleared", { week: week7, doc: snap7, at: Date.now() });
+    if (snap7 && planHasMeals(week7)) lsSet("steady.lastCleared", { week: week7, doc: snap7, at: Date.now() });
     ui.planStep = "pro"; saveUi();
     queueOp({ type: "plan", week: week7, clear: tsNow(), f: {} });
     var after7 = snapshotPlan(week7);
