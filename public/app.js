@@ -771,7 +771,7 @@ function planWeekHTML(week, cells, ctx) {
       h += '<p class="warn">Meat lunch, dairy dinner: about 7 hours apart. Fine if that fits your waiting time; otherwise shuffle one.</p>';
     }
     if (d === 5 && !slotKeys["m5D"]) h += '<p class="muted">Friday night is Shabbos.</p>';
-    if (ctx.pre[d]) h += '<p class="muted">Tonight is Yom Tov: dinner isn\'t planned.</p>';
+    if (YOMTOV[addDays(week, d + 1)]) h += '<p class="muted">Tonight is Yom Tov: dinner isn\'t planned.</p>';
     h += '</section>';
   }
   h += '<section class="card"><div class="row wrap"><button class="btn" data-act="shuffle-all">🔀 Shuffle all unlocked</button>' +
