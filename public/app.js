@@ -1411,9 +1411,27 @@ document.addEventListener("click", function (ev) {
     if (act === "mp-pick") valM = { id: el.getAttribute("data-id") };
     else if (act === "mp-lo") valM = { lo: 1 };
     if (valM && curM && curM.k) valM.k = true;
+    /* Add 1 (round 3): undo toast for a picker pick/clear. Snapshot the slot
+       (and tomorrow's lunch for a dinner: afterDinnerPick may re-pick it) so
+       Undo can surgically restore whatever this pick changed. */
+    var dowM = +keyM.charAt(1), isDinnerM = keyM.slice(-1) === "D";
+    var lunchKeyM = "m" + (dowM + 1) + "L";
+    var prevM = curM ? JSON.parse(JSON.stringify(curM)) : null;
+    var prevLoM = (isDinnerM && dowM <= 4 && cellsM[lunchKeyM]) ? JSON.parse(JSON.stringify(cellsM[lunchKeyM])) : null;
     closeMealPicker();
     opPlan(weekM, keyM, valM);
-    if (keyM.slice(-1) === "D") afterDinnerPick(weekM, keyM);
+    if (isDinnerM) afterDinnerPick(weekM, keyM);
+    var cellsAfterM = planCells(weekM);
+    var postM = cellsAfterM[keyM] ? JSON.parse(JSON.stringify(cellsAfterM[keyM])) : null;
+    var postLoM = cellsAfterM[lunchKeyM] ? JSON.parse(JSON.stringify(cellsAfterM[lunchKeyM])) : null;
+    if (!sameJSON(prevM, postM)) {
+      showUndoToast("Changed " + ENGINE.DAYN[dowM] + " " + (isDinnerM ? "dinner" : "lunch") + ".", function () {
+        var cellsNowM = planCells(weekM);
+        if (sameJSON(cellsNowM[keyM] || null, postM)) opPlan(weekM, keyM, prevM, { silent: true });
+        if (prevLoM && prevLoM.lo && !sameJSON(postLoM, prevLoM) && sameJSON(cellsNowM[lunchKeyM] || null, postLoM)) opPlan(weekM, lunchKeyM, prevLoM, { silent: true });
+        saveLocal(); statusAfterEdit(); render(true);
+      });
+    }
     return;
   }
   if (act === "share-shop") { shareOrCopy("Steady shopping list", shopShareText(currentPlanWeek()).text, el); return; }
