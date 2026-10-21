@@ -1430,7 +1430,7 @@ document.addEventListener("click", function (ev) {
     saveUi(); render(true); if (wChanged) pushHistory();
     return;
   }
-  if (act === "plan-step") { var sNew = el.getAttribute("data-s"); var stChanged = sNew !== ui.planStep; ui.planStep = sNew; saveUi(); render(true); if (stChanged) pushHistory(); return; }
+  if (act === "plan-step") { var sNew = el.getAttribute("data-s"); var stChanged = sNew !== ui.planStep; ui.planStep = sNew; saveUi(); render(true); if (stChanged) { window.scrollTo(0, 0); pushHistory(); } return; }
   if (act === "pro") {
     var week = currentPlanWeek(), cells = planCells(week), id = el.getAttribute("data-id");
     var pros = ENGINE.proteinsOf(cells), ix = pros.indexOf(id);
