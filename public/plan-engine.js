@@ -331,14 +331,31 @@
     if (!pool.length) return out;
     var meal = pickFrom(pool, rand);
     out[key] = { id: meal.id };
-    // Dinner shuffled: an unlocked leftover lunch tomorrow may need re-picking.
+    // Dinner shuffled: an unlocked leftover lunch may need re-picking.
     if (slotLetter === "D") {
-      var dow = +key.charAt(1), lk = "m" + (dow + 1) + "L", lv = out[lk];
-      if (lv && lv.lo && !lv.k && !meal.lo) {
+      var dow = +key.charAt(1);
+      var repick = function (lk2, day2) {
         var used2 = {};
         slots(ctx, out).forEach(function (s) { var r = resolve(ctx, out, s.key); if (r && r.meal) used2[r.meal.id] = true; });
-        var rep = pickLunchReplacement(ctx, out, dow + 1, P, used2, rand);
-        if (rep) out[lk] = { id: rep.id }; else delete out[lk];
+        var rep = pickLunchReplacement(ctx, out, day2, P, used2, rand);
+        if (rep) out[lk2] = { id: rep.id }; else delete out[lk2];
+      };
+      // Tomorrow's lunch is this dinner's leftovers: re-pick when the new
+      // dinner makes no leftovers, or its leftovers are blocked by the
+      // lunch day's own dinner (same rule as afterDinnerPick).
+      var lk = "m" + (dow + 1) + "L", lv = out[lk];
+      if (lv && lv.lo && !lv.k) {
+        var tdR = resolve(ctx, out, "m" + (dow + 1) + "D");
+        var tdTag = tdR && tdR.meal ? tdR.meal.t : null;
+        if (!meal.lo || pickerBlocked(meal.t, "L", tdTag)) repick(lk, dow + 1);
+      }
+      // Today's lunch is yesterday's leftovers (its source dinner is
+      // untouched) but it is eaten before this dinner: re-pick when the
+      // new dinner blocks it.
+      var sk = "m" + dow + "L", sv = out[sk];
+      if (sv && sv.lo && !sv.k) {
+        var slR = resolve(ctx, out, sk);
+        if (slR && slR.meal && pickerBlocked(slR.meal.t, "L", meal.t)) repick(sk, dow);
       }
     }
     return out;
