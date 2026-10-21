@@ -1029,6 +1029,9 @@ function surgicalUndo(week, beforeDoc, afterDoc, keys) {
    Add 2 (round 3): one parked plan PER week — steady.lastCleared is a map
    { week: {doc, at} }. A legacy single {week, doc, at} value is migrated in
    place on first read, so a plan parked by an older version survives. */
+function validClearedEntry(e) {
+  return !!(e && typeof e === "object" && e.doc && typeof e.doc === "object" && e.doc.f);
+}
 function clearedMap() {
   var lc = lsGet("steady.lastCleared", null);
   if (!lc || typeof lc !== "object" || Array.isArray(lc)) return {};
@@ -1041,7 +1044,7 @@ function clearedMap() {
   var out = {};
   Object.keys(lc).forEach(function (w) {
     var e = lc[w];
-    if (e && typeof e === "object" && e.doc && typeof e.doc === "object" && e.doc.f) out[w] = { doc: e.doc, at: e.at };
+    if (validClearedEntry(e)) out[w] = { doc: e.doc, at: e.at };
   });
   return out;
 }
@@ -1815,7 +1818,18 @@ function sanitizeBackup(parsed) {
       };
     });
   }
-  return { state: out, fixed: fixed };
+  /* Batch 3 item 1: parked plans travel with the backup. Absent field
+     (old backups) => undefined, and the restore leaves local parks alone. */
+  var lcOut;
+  if (sbIsObj(parsed.lastCleared)) {
+    lcOut = {};
+    Object.keys(parsed.lastCleared).forEach(function (w) {
+      var e = parsed.lastCleared[w];
+      if (validClearedEntry(e)) lcOut[w] = { doc: e.doc, at: sbNum(e.at) || 0 };
+      else fixed++;
+    });
+  }
+  return { state: out, fixed: fixed, lastCleared: lcOut };
 }
 function lastBackupInfo() {
   var ts = lsGet("steady.lastBackup", null);
@@ -1831,7 +1845,10 @@ document.getElementById("backupBtn").addEventListener("click", function () {
   lsSet("steady.lastBackup", Date.now());
   var lbEl = document.getElementById("lastBackupLine");
   if (lbEl) { var lb = lastBackupInfo(); lbEl.textContent = lb.text; lbEl.className = "small " + (lb.warn ? "warn" : "muted"); }
-  var blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+  var payload = JSON.parse(JSON.stringify(state));
+  var lcm = clearedMap();
+  if (Object.keys(lcm).length) payload.lastCleared = lcm;
+  var blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   var url = URL.createObjectURL(blob);
   var a = document.createElement("a");
   a.href = url;
@@ -1860,6 +1877,10 @@ document.getElementById("restoreInput").addEventListener("change", function (ev)
     var cleaned = sanitizeBackup(parsed);
     state = cleaned.state;
     saveLocal();
+    if (cleaned.lastCleared !== undefined) {
+      if (Object.keys(cleaned.lastCleared).length) lsSet("steady.lastCleared", cleaned.lastCleared);
+      else try { localStorage.removeItem("steady.lastCleared"); } catch (e) {}
+    }
     window.alert(cleaned.fixed === 1 ? "Backup restored — 1 bad value was ignored." : cleaned.fixed > 1 ? "Backup restored — " + cleaned.fixed + " bad values were ignored." : "Backup restored.");
     var dlg = document.getElementById("settingsDlg");
     if (dlg && dlg.open) dlg.close();
