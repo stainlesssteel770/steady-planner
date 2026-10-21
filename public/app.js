@@ -1804,8 +1804,13 @@ document.addEventListener("visibilitychange", function () {
 /* ---------------- boot ---------------- */
 window.addEventListener("pagehide", flushSteps);
 document.querySelectorAll("#bottomNav button").forEach(function (b) { b.setAttribute("data-act", "tab"); });
+/* Bug 9: if the page was refreshed with a dialog open, its history entry
+   survives as a duplicate of the entry below and swallows the first Back.
+   Consume it once here (captured before replaceState rewrites the state). */
+var staleDlg = !!(window.history.state && history.state.dlg);
 try { history.replaceState(histSnapshot(), ""); } catch (e) {}
 try { localStorage.removeItem("steady.queue"); } catch (e) {}
 if ("serviceWorker" in navigator) { try { navigator.serviceWorker.register("sw.js").catch(function () {}); } catch (e) {} }
 render(true);
+if (staleDlg) { try { history.back(); } catch (e) {} }
 loadCalendar().then(function () { render(true); });
