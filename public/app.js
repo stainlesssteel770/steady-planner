@@ -1565,7 +1565,7 @@ document.getElementById("setSave").addEventListener("click", function (ev) {
   var errs = [];
   var sg = null, wt = null;
   if (sgRaw !== "") { sg = Number(sgRaw); if (!(sg >= 1000 && sg <= 40000)) errs.push("Step goal must be between 1,000 and 40,000."); }
-  if (wtRaw !== "") { wt = Number(wtRaw); if (!(wt >= 1 && wt <= 7)) errs.push("Workouts per week must be between 1 and 7."); }
+  if (wtRaw !== "") { wt = Number(wtRaw); if (!Number.isInteger(wt)) errs.push("Workouts per week must be a whole number."); else if (!(wt >= 1 && wt <= 7)) errs.push("Workouts per week must be between 1 and 7."); }
   if (errs.length) { setErr(errs.join(" ")); if (ev) ev.preventDefault(); return; }
   setErr("");
   if (sg !== null && sg !== getSetting("stepGoal")) opSettings("stepGoal", sg);
