@@ -1631,6 +1631,7 @@ function sanitizeBackup(parsed) {
     fixed++; return null;
   }
   function cleanPlanCell(name, c) {
+    if (c && c.v === null) return c;
     if (!/^[A-Za-z0-9_.:-]{1,64}$/.test(name)) { fixed++; return null; }
     if (name === "srvB" || name === "srvL" || name === "srvD") {
       var n = sbNum(c.v);
