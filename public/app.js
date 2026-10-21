@@ -1176,8 +1176,11 @@ var mpKey = null;
    Meat on the same day, are blocked. Dairy lunch + Meat dinner is fine. */
 function pickerBlocked(tag, slot, otherTag) {
   if (!tag || !otherTag) return false;
-  if (slot === "L") return (tag === "M" && otherTag === "D") || (tag === "F" && otherTag === "M") || (tag === "M" && otherTag === "F");
-  return (tag === "D" && otherTag === "M") || (tag === "F" && otherTag === "M") || (tag === "M" && otherTag === "F");
+  /* Only meat/dairy is a day-level block: meat never before dairy in a
+     day (either slot order). Fish and meat on the same DAY are allowed
+     (Beta batch 1 item 4) — they are never in the same meal here. */
+  if (slot === "L") return tag === "M" && otherTag === "D";
+  return tag === "D" && otherTag === "M";
 }
 function openMealPicker(key) {
   var week = currentPlanWeek(), cells = planCells(week), ctx = planCtx(week);
@@ -1189,11 +1192,8 @@ function openMealPicker(key) {
   var other = ENGINE.resolve(ctx, cells, "m" + dow + (slot === "L" ? "D" : "L"));
   var otherTag = other && other.meal ? other.meal.t : null;
   document.getElementById("mpTitle").textContent = ENGINE.DAYN[dow] + " " + (slot === "L" ? "lunch" : "dinner") + " — pick a meal";
-  var hidMD = false, hidFish = false;
-  function noteBlocked(tag) {
-    if ((tag === "F" && otherTag === "M") || (tag === "M" && otherTag === "F")) hidFish = true;
-    else hidMD = true;
-  }
+  var hidMD = false;
+  function noteBlocked(tag) { hidMD = true; }
   var loHTML = "";
   if (slot === "L" && dow > 0) {
     var prevD = ENGINE.resolve(ctx, cells, "m" + (dow - 1) + "D");
@@ -1210,10 +1210,9 @@ function openMealPicker(key) {
   });
   list.sort(function (a, b) { return a.n < b.n ? -1 : a.n > b.n ? 1 : 0; });
   var html = "";
-  if (hidMD || hidFish) {
+  if (hidMD) {
     var hints = [];
     if (hidMD) hints.push(slot === "L" ? "Meat isn't shown: tonight is a dairy dinner." : "Dairy isn't shown: lunch today is meat.");
-    if (hidFish) hints.push("Fish and meat aren't mixed on the same day, so some meals are hidden.");
     html += '<p class="muted small mp-hint">' + esc(hints.join(" ")) + '</p>';
   }
   html += loHTML;
