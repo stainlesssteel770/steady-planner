@@ -925,11 +925,18 @@ function hideUndoToast() {
   if (undoToastTimer) clearTimeout(undoToastTimer);
   undoToastTimer = null;
   if (undoToastEl) { undoToastEl.remove(); undoToastEl = null; }
+  var mEl2 = mainEl(); if (mEl2) mEl2.style.paddingBottom = "";
 }
 function mountToast(el, ms) {
   hideUndoToast();
   document.body.appendChild(el);
   undoToastEl = el;
+  /* Bug 12: reserve room so the fixed toast can't cover content at the
+     bottom of the page — ADD the toast height + 16 to main's existing
+     bottom padding (the stylesheet already carries 96px for the nav, and
+     the toast sits 84px up, so setting it outright would reserve less). */
+  var mEl = mainEl();
+  if (mEl) mEl.style.paddingBottom = ((parseFloat(getComputedStyle(mEl).paddingBottom) || 0) + el.offsetHeight + 16) + "px";
   undoToastTimer = setTimeout(hideUndoToast, ms);
 }
 function showInfoToast(msg) {
