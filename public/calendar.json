@@ -1,0 +1,158 @@
+{
+ "source": "Hebcal REST API (diaspora, i=off), via spec Appendix C",
+ "events": [
+  {
+   "d": "2026-09-26",
+   "t": "Sukkot I",
+   "k": "yomtov"
+  },
+  {
+   "d": "2026-09-27",
+   "t": "Sukkot II",
+   "k": "yomtov"
+  },
+  {
+   "d": "2026-10-03",
+   "t": "Shmini Atzeret",
+   "k": "yomtov"
+  },
+  {
+   "d": "2026-10-04",
+   "t": "Simchat Torah",
+   "k": "yomtov"
+  },
+  {
+   "d": "2027-04-22",
+   "t": "Pesach I",
+   "k": "yomtov"
+  },
+  {
+   "d": "2027-04-23",
+   "t": "Pesach II",
+   "k": "yomtov"
+  },
+  {
+   "d": "2027-04-28",
+   "t": "Pesach VII",
+   "k": "yomtov"
+  },
+  {
+   "d": "2027-04-29",
+   "t": "Pesach VIII",
+   "k": "yomtov"
+  },
+  {
+   "d": "2027-06-11",
+   "t": "Shavuot I",
+   "k": "yomtov"
+  },
+  {
+   "d": "2027-06-12",
+   "t": "Shavuot II",
+   "k": "yomtov"
+  },
+  {
+   "d": "2027-10-02",
+   "t": "Rosh Hashana 5788",
+   "k": "yomtov"
+  },
+  {
+   "d": "2027-10-03",
+   "t": "Rosh Hashana II",
+   "k": "yomtov"
+  },
+  {
+   "d": "2027-10-11",
+   "t": "Yom Kippur",
+   "k": "yomtov",
+   "fast": true
+  },
+  {
+   "d": "2027-10-16",
+   "t": "Sukkot I",
+   "k": "yomtov"
+  },
+  {
+   "d": "2027-10-17",
+   "t": "Sukkot II",
+   "k": "yomtov"
+  },
+  {
+   "d": "2027-10-23",
+   "t": "Shmini Atzeret",
+   "k": "yomtov"
+  },
+  {
+   "d": "2027-10-24",
+   "t": "Simchat Torah",
+   "k": "yomtov"
+  },
+  {
+   "d": "2028-04-11",
+   "t": "Pesach I",
+   "k": "yomtov"
+  },
+  {
+   "d": "2028-04-12",
+   "t": "Pesach II",
+   "k": "yomtov"
+  },
+  {
+   "d": "2028-04-17",
+   "t": "Pesach VII",
+   "k": "yomtov"
+  },
+  {
+   "d": "2028-04-18",
+   "t": "Pesach VIII",
+   "k": "yomtov"
+  },
+  {
+   "d": "2028-05-31",
+   "t": "Shavuot I",
+   "k": "yomtov"
+  },
+  {
+   "d": "2028-06-01",
+   "t": "Shavuot II",
+   "k": "yomtov"
+  },
+  {
+   "d": "2028-09-21",
+   "t": "Rosh Hashana 5789",
+   "k": "yomtov"
+  },
+  {
+   "d": "2028-09-22",
+   "t": "Rosh Hashana II",
+   "k": "yomtov"
+  },
+  {
+   "d": "2028-09-30",
+   "t": "Yom Kippur",
+   "k": "yomtov",
+   "fast": true
+  },
+  {
+   "d": "2028-10-05",
+   "t": "Sukkot I",
+   "k": "yomtov"
+  },
+  {
+   "d": "2028-10-06",
+   "t": "Sukkot II",
+   "k": "yomtov"
+  },
+  {
+   "d": "2028-10-12",
+   "t": "Shmini Atzeret",
+   "k": "yomtov"
+  },
+  {
+   "d": "2028-10-13",
+   "t": "Simchat Torah",
+   "k": "yomtov"
+  }
+ ],
+ "nineDays": []
+}
