@@ -1219,7 +1219,8 @@ function writeCells(week, newCells, onlyKeys) {
   });
 }
 function buildWeek(week) {
-  try { localStorage.removeItem("steady.lastCleared"); } catch (e) {}
+  var lcB = readLastCleared();
+  if (lcB && lcB.week === week) try { localStorage.removeItem("steady.lastCleared"); } catch (e) {}
   var cells = planCells(week);
   var hasC = Object.keys(cells).some(function (k) { return k.indexOf("c_") === 0; });
   var hasH = Object.keys(cells).some(function (k) { return k.indexOf("h_") === 0; });
