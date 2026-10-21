@@ -1453,7 +1453,9 @@ document.addEventListener("click", function (ev) {
     var postM = cellsAfterM[keyM] ? JSON.parse(JSON.stringify(cellsAfterM[keyM])) : null;
     var postLoM = cellsAfterM[lunchKeyM] ? JSON.parse(JSON.stringify(cellsAfterM[lunchKeyM])) : null;
     if (!sameJSON(prevM, postM)) {
-      showUndoToast("Changed " + ENGINE.DAYN[dowM] + " " + (isDinnerM ? "dinner" : "lunch") + ".", function () {
+      var msgM = "Changed " + ENGINE.DAYN[dowM] + " " + (isDinnerM ? "dinner" : "lunch") + ".";
+      if (isDinnerM && prevLoM && prevLoM.lo && !sameJSON(postLoM, prevLoM)) msgM += " " + ENGINE.DAYN[dowM + 1] + "'s lunch updated too.";
+      showUndoToast(msgM, function () {
         var cellsNowM = planCells(weekM);
         if (sameJSON(cellsNowM[keyM] || null, postM)) opPlan(weekM, keyM, prevM, { silent: true });
         if (prevLoM && prevLoM.lo && !sameJSON(postLoM, prevLoM) && sameJSON(cellsNowM[lunchKeyM] || null, postLoM)) opPlan(weekM, lunchKeyM, prevLoM, { silent: true });
