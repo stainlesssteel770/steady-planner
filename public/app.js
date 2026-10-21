@@ -1454,9 +1454,30 @@ document.addEventListener("click", function (ev) {
   if (act === "build") { buildWeek(currentPlanWeek()); return; }
   if (act === "shuffle-all") {
     var week3 = currentPlanWeek(), ctx3 = planCtx(week3);
-    var gen = ENGINE.generate(ctx3, planCells(week3), Math.random);
-    writeCells(week3, gen, Object.keys(gen));
+    var cellsBef = planCells(week3);
+    var gen = ENGINE.generate(ctx3, cellsBef, Math.random);
+    var keysA = Object.keys(gen), prevA = {};
+    keysA.forEach(function (k) { prevA[k] = cellsBef[k] === undefined ? null : cellsBef[k]; });
+    writeCells(week3, gen, keysA);
     saveLocal(); statusAfterEdit(); render(true);
+    /* Beta batch 1 item 5: an Undo toast, like the single dice rolls —
+       surgical restore over just the keys the shuffle changed. */
+    var cellsAft = planCells(week3), chA = [];
+    keysA.forEach(function (k) {
+      var a = cellsAft[k] === undefined ? null : cellsAft[k];
+      if (JSON.stringify(a) !== JSON.stringify(prevA[k])) chA.push(k);
+    });
+    if (chA.length) {
+      var undoA = (function (wk, prev, keys) {
+        return function () {
+          var okAll = true;
+          keys.forEach(function (k) { if (!writeCells(wk, prev, [k])) okAll = false; });
+          if (okAll) { saveLocal(); statusAfterEdit(); render(true); }
+          return okAll;
+        };
+      })(week3, prevA, chA);
+      showUndoToast("Changed the whole week.", undoA);
+    }
     return;
   }
   if (act === "shuffle-one") {
