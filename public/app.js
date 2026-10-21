@@ -943,6 +943,7 @@ function showInfoToast(msg) {
 }
 function showUndoToast(msg, undoFn) {
   var originTab = ui.tab;
+  var originStep = ui.planStep;
   var el = document.createElement("div");
   el.className = "undo-toast";
   el.setAttribute("role", "status");
@@ -954,7 +955,7 @@ function showUndoToast(msg, undoFn) {
   btn.addEventListener("click", function () {
     hideUndoToast();
     if (undoFn) undoFn();
-    if (ui.tab !== originTab) showInfoToast("Undone ✓");
+    if (ui.tab !== originTab || ui.planStep !== originStep) showInfoToast("Undone ✓");
   });
   el.appendChild(span);
   el.appendChild(btn);
