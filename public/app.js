@@ -933,6 +933,10 @@ function hideUndoToast() {
   var mEl2 = mainEl(); if (mEl2) mEl2.style.paddingBottom = "";
 }
 function mountToast(el, ms) {
+  /* Item 2 (batch 2): if the page was already scrolled to its end, the
+     extra bottom padding alone doesn't move the content the toast covers —
+     scroll by the added amount after mounting so the end stays in view. */
+  var wasAtEnd = (window.scrollY + window.innerHeight) >= (document.documentElement.scrollHeight - 2);
   hideUndoToast();
   document.body.appendChild(el);
   undoToastEl = el;
@@ -941,7 +945,9 @@ function mountToast(el, ms) {
      bottom padding (the stylesheet already carries 96px for the nav, and
      the toast sits 84px up, so setting it outright would reserve less). */
   var mEl = mainEl();
-  if (mEl) mEl.style.paddingBottom = ((parseFloat(getComputedStyle(mEl).paddingBottom) || 0) + el.offsetHeight + 16) + "px";
+  var addedPad = el.offsetHeight + 16;
+  if (mEl) mEl.style.paddingBottom = ((parseFloat(getComputedStyle(mEl).paddingBottom) || 0) + addedPad) + "px";
+  if (wasAtEnd) window.scrollBy(0, addedPad);
   undoToastTimer = setTimeout(hideUndoToast, ms);
 }
 function showInfoToast(msg) {
