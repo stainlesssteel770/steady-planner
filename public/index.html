@@ -21,6 +21,12 @@
       <button id="gearBtn" class="icon-btn" aria-label="Settings">⚙︎</button>
     </div>
   </header>
+  <div id="installBanner" class="install-banner" hidden>
+    <span class="install-txt">Install Steady for one-tap opening.</span>
+    <button type="button" class="btn small" id="installBtnBanner">Install app</button>
+    <button type="button" class="icon-btn" id="installDismiss" aria-label="Dismiss">✕</button>
+    <p class="small install-steps" id="iosStepsBanner" hidden>On iPhone: tap the Share button, then “Add to Home Screen”, then Add.</p>
+  </div>
   <main id="main"></main>
   <nav class="bottomnav" id="bottomNav">
     <button data-tab="today"><span class="nav-ic">☀</span><span>Today</span></button>
@@ -44,7 +50,14 @@
       <div class="fld-label" id="setRestLabel">Rest day</div>
       <div class="rest-ctl" id="setRestCtl"></div>
     </div>
-    <p class="muted small">Shabbos and Yom Tov come from the calendar automatically. To keep this on your home screen: Chrome menu ⋮ → Add to Home screen.</p>
+    <p class="muted small">Shabbos and Yom Tov come from the calendar automatically.</p>
+    <div class="fld" id="installFld" hidden>
+      <div class="fld-label">Install app</div>
+      <div class="rest-ctl">
+        <button type="button" class="btn" id="installBtn">Install app</button>
+      </div>
+      <p class="small" id="iosSteps" hidden>On iPhone: tap the Share button, then “Add to Home Screen”, then Add.</p>
+    </div>
     <div class="fld">
       <div class="fld-label">Backup</div>
       <p class="muted small">Everything is saved only in this browser, on this phone. Download a backup now and then — it is the file you restore from if you switch phones.</p>

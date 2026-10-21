@@ -1927,6 +1927,39 @@ function lastBackupInfo() {
   return { text: "Last backup: " + days + " days ago", warn: days > 7 };
 }
 
+/* ---------------- install (Beta batch 2 item 1) ---------------- */
+var deferredInstall = null;
+function isStandaloneApp() { return !!((window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || window.navigator.standalone); }
+function isIOSDevice() { var ua = window.navigator.userAgent || ""; return /iphone|ipad|ipod/i.test(ua) || (window.navigator.platform === "MacIntel" && window.navigator.maxTouchPoints > 1); }
+function lsFlag(key) { try { return localStorage.getItem(key) === "1"; } catch (err) { return false; } }
+function lsSetFlag(key) { try { localStorage.setItem(key, "1"); } catch (err) {} }
+function installAvailable() { return !isStandaloneApp() && !lsFlag("steady.installAccepted") && (!!deferredInstall || isIOSDevice()); }
+function refreshInstallUI() {
+  var show = installAvailable();
+  var banner = document.getElementById("installBanner");
+  if (banner) banner.hidden = !(show && !lsFlag("steady.installDismissed"));
+  var fld = document.getElementById("installFld");
+  if (fld) fld.hidden = !show;
+}
+function doInstall(stepsId) {
+  if (deferredInstall) {
+    var p = deferredInstall; deferredInstall = null;
+    p.prompt();
+    p.userChoice.then(function (choice) {
+      if (choice && choice.outcome === "accepted") lsSetFlag("steady.installAccepted");
+      refreshInstallUI();
+    });
+    return;
+  }
+  if (isIOSDevice()) { var s = document.getElementById(stepsId); if (s) s.hidden = false; }
+}
+window.addEventListener("beforeinstallprompt", function (e) { e.preventDefault(); deferredInstall = e; refreshInstallUI(); });
+window.addEventListener("appinstalled", function () { lsSetFlag("steady.installAccepted"); deferredInstall = null; refreshInstallUI(); });
+document.getElementById("installBtn").addEventListener("click", function () { doInstall("iosSteps"); });
+document.getElementById("installBtnBanner").addEventListener("click", function () { doInstall("iosStepsBanner"); });
+document.getElementById("installDismiss").addEventListener("click", function () { lsSetFlag("steady.installDismissed"); refreshInstallUI(); });
+refreshInstallUI();
+
 /* ---------------- backup / restore ---------------- */
 document.getElementById("backupBtn").addEventListener("click", function () {
   lsSet("steady.lastBackup", Date.now());

@@ -104,6 +104,11 @@ main {
 .btn:disabled { opacity: 0.45; cursor: default; }
 .btn.small { min-height: 38px; padding: 4px 12px; font-size: 0.9rem; }
 .link-btn { background: none; border: none; color: var(--accent); font-weight: 600; padding: 8px 4px; min-height: 44px; }
+/* Beta batch 2 item 1: install banner (first visit, dismissible). */
+.install-banner { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 10px 12px 0; padding: 10px 12px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; }
+.install-banner[hidden] { display: none; }
+.install-banner .install-txt { flex: 1; font-weight: 600; }
+.install-banner .install-steps { flex: 1 1 100%; margin: 2px 0 0; }
 .danger-link { background: none; border: none; color: var(--low); font-weight: 600; padding: 10px 4px; min-height: 44px; }
 .row { display: flex; align-items: center; gap: 10px; }
 .row.wrap { flex-wrap: wrap; }
