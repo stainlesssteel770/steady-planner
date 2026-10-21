@@ -1153,7 +1153,7 @@ function openMealPicker(key) {
     var flags = "";
     if (meal.lo) flags += '<span class="mp-flag">leftovers OK</span>';
     if (meal.fresh) flags += '<span class="mp-flag">cook fresh</span>';
-    html += '<button class="mp-opt" data-act="mp-pick" data-id="' + meal.id + '">' + tagPill(meal.t) + '<span>' + esc(meal.n) + '</span>' + flags + '<span class="mp-min">' + meal.min + ' min</span></button>';
+    html += '<button class="mp-opt" data-act="mp-pick" data-id="' + meal.id + '">' + tagPill(meal.t) + '<span class="mp-mid"><span>' + esc(meal.n) + '</span>' + (flags ? '<span>' + flags + '</span>' : '') + '</span><span class="mp-min">' + meal.min + ' min</span></button>';
   });
   if (!list.length && !loHTML) html += '<p class="muted">No library meals match this slot with the week\'s proteins. Pick proteins first, or shuffle instead.</p>';
   html += '<button class="mp-opt" data-act="mp-clear"><span>Clear this slot</span></button>';

@@ -286,7 +286,8 @@ dialog::backdrop { background: rgba(0,0,0,0.45); }
   min-height: 52px; padding: 10px 12px; margin: 6px 0; border: 1px solid var(--line);
   border-radius: 12px; background: var(--card); color: var(--ink); font-weight: 600;
 }
-.mp-opt .mp-min { margin-left: auto; color: var(--muted); font-weight: 600; white-space: nowrap; }
+.mp-opt .mp-min { margin-left: auto; color: var(--muted); font-weight: 600; white-space: nowrap; flex: 0 0 auto; }
+.mp-mid { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; }
 .mp-flag { color: var(--muted); font-size: 0.78rem; font-weight: 600; white-space: nowrap; border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; }
 .mp-hint { margin: 2px 0 6px; }
 .srv-row { flex-wrap: nowrap; }
