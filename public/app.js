@@ -1388,7 +1388,7 @@ document.addEventListener("click", function (ev) {
     var wNew = el.getAttribute("data-w");
     var wChanged = wNew !== currentPlanWeek();
     ui.planWs = wNew;
-    if (!planHasMeals(wNew)) ui.planStep = "pro";
+    if (wChanged) ui.planStep = planHasMeals(wNew) ? "week" : "pro";
     saveUi(); render(true); if (wChanged) pushHistory();
     return;
   }
