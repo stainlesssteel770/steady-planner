@@ -972,8 +972,10 @@ function showUndoToast(msg, undoFn) {
   btn.textContent = "Undo";
   btn.addEventListener("click", function () {
     hideUndoToast();
-    if (undoFn) undoFn();
-    if (ui.tab !== originTab || ui.planStep !== originStep) showInfoToast("Undone ✓");
+    /* Item 4 (batch 2): "Undone ✓" is earned, not automatic — only when the
+       undo actually restored something (undoFn returns truthy). */
+    var didUndo = undoFn ? undoFn() : false;
+    if (didUndo && (ui.tab !== originTab || ui.planStep !== originStep)) showInfoToast("Undone ✓");
   });
   el.appendChild(span);
   el.appendChild(btn);
@@ -1468,9 +1470,11 @@ document.addEventListener("click", function (ev) {
       if (lockNoteM) msgM += " " + ENGINE.DAYN[dowM + 1] + "'s lunch is locked as leftovers — check it.";
       showUndoToast(msgM, function () {
         var cellsNowM = planCells(weekM);
-        if (sameJSON(cellsNowM[keyM] || null, postM)) opPlan(weekM, keyM, prevM, { silent: true });
-        if (prevLoM && prevLoM.lo && !sameJSON(postLoM, prevLoM) && sameJSON(cellsNowM[lunchKeyM] || null, postLoM)) opPlan(weekM, lunchKeyM, prevLoM, { silent: true });
+        var didM = false;
+        if (sameJSON(cellsNowM[keyM] || null, postM)) { opPlan(weekM, keyM, prevM, { silent: true }); didM = true; }
+        if (prevLoM && prevLoM.lo && !sameJSON(postLoM, prevLoM) && sameJSON(cellsNowM[lunchKeyM] || null, postLoM)) { opPlan(weekM, lunchKeyM, prevLoM, { silent: true }); didM = true; }
         saveLocal(); statusAfterEdit(); render(true);
+        return didM;
       });
     } else if (lockNoteM) {
       showInfoToast("Tomorrow's lunch is locked as leftovers — the dinner changed, so check it.");
@@ -1517,8 +1521,8 @@ document.addEventListener("click", function (ev) {
         var aftV = after7 && after7.f ? after7.f[k] : undefined;
         return !sameJSON(curV, aftV);
       });
-      if (dirty7) { showInfoToast("Nothing left to undo — those were changed since."); return; }
-      undoOrTell(week7, snap7, after7, keys7, function () {
+      if (dirty7) { showInfoToast("Nothing left to undo — those were changed since."); return false; }
+      return undoOrTell(week7, snap7, after7, keys7, function () {
         setPark(week7, null);
       });
     });
@@ -1527,6 +1531,7 @@ document.addEventListener("click", function (ev) {
   if (act === "restore-cleared") {
     var lcR = readLastCleared(currentPlanWeek());
     if (lcR) {
+      hideUndoToast();
       state.plans[lcR.week] = JSON.parse(JSON.stringify(lcR.doc));
       setPark(lcR.week, null);
       ui.planWs = lcR.week;
@@ -1556,7 +1561,7 @@ document.addEventListener("click", function (ev) {
     Object.keys(cells9).forEach(function (k) { if (k.indexOf("g_") === 0 && cells9[k]) { keys9.push(k); opPlan(week9, k, false, { silent: true }); } });
     saveLocal(); statusAfterEdit(); render(true);
     var after9 = snapshotPlan(week9);
-    showUndoToast("Shopping list unchecked.", function () { undoOrTell(week9, snap9, after9, keys9); });
+    showUndoToast("Shopping list unchecked.", function () { return undoOrTell(week9, snap9, after9, keys9); });
     return;
   }
   if (act === "prepday") { opSettings("prepDay", +el.getAttribute("data-d")); return; }
@@ -1567,7 +1572,7 @@ document.addEventListener("click", function (ev) {
     Object.keys(cellsA).forEach(function (k) { if (k.indexOf("t_") === 0 && cellsA[k]) { keysA.push(k); opPlan(weekA, k, false, { silent: true }); } });
     saveLocal(); statusAfterEdit(); render(true);
     var afterA = snapshotPlan(weekA);
-    showUndoToast("Prep ticks cleared.", function () { undoOrTell(weekA, snapA, afterA, keysA); });
+    showUndoToast("Prep ticks cleared.", function () { return undoOrTell(weekA, snapA, afterA, keysA); });
     return;
   }
   // settings dialog buttons
