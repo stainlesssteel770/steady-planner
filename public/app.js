@@ -1184,7 +1184,10 @@ function afterDinnerPick(week, dinnerKey) {
   if (!lc || !lc.lo) return;
   if (lc.k) { showInfoToast("Tomorrow's lunch is locked as leftovers — the dinner changed, so check it."); return; }
   var dn = ENGINE.resolve(ctx, cells, dinnerKey);
-  if (dn && dn.meal && dn.meal.lo) return;
+  if (dn && dn.meal && dn.meal.lo) {
+    var td = ENGINE.resolve(ctx, cells, "m" + (d + 1) + "D");
+    if (!(td && td.meal && pickerBlocked(dn.meal.t, "L", td.meal.t))) return;
+  }
   var replaced = false;
   if (ENGINE.proteinsOf(cells).length >= 2) {
     var out = ENGINE.shuffleOne(ctx, cells, lunchKey, Math.random);
