@@ -10,6 +10,7 @@ This is the personal-use build. It is a completely static site hosted on GitHub 
 
 - **Your data never leaves your phone.** Habits, check-ins, settings and meal plans are stored only in your browser's local storage on that device. Nothing is uploaded anywhere. Anyone opening the link just sees their own empty tracker on their own device.
 - **Works offline** after the first load (service worker), and can be added to the home screen: Chrome menu ⋮ → *Add to Home screen*.
+- **Extras:** tap a meal in the Week view to pick a different one from the library; Share buttons copy/share the shopping and prep lists; clearing a week, unchecking the list or clearing prep ticks shows a 5-second Undo.
 - **Backup:** Settings → *Download backup* saves a JSON file of all your data. Settings → *Restore from backup* loads it again — use this when switching phones.
 
 ## What's in it

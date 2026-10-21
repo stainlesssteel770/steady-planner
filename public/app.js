@@ -133,6 +133,7 @@ function queueOp(op, opts) {
 function opDay(date, field, value) { var f = {}; f[field] = { v: value, ts: tsNow() }; queueOp({ type: "day", date: date, f: f }); }
 function opDaySilent(date, field, value, opts) { var f = {}; f[field] = { v: value, ts: tsNow() }; queueOp({ type: "day", date: date, f: f }, opts); }
 function opSettings(field, value) { var f = {}; f[field] = { v: value, ts: tsNow() }; queueOp({ type: "settings", f: f }); }
+function workoutLevel() { var v = Number(getSetting("workoutLevel")); return isFinite(v) ? Math.max(0, Math.min(12, Math.round(v))) : 0; }
 function planDoc(week) { return state.plans[week] || { f: {} }; }
 function planCells(week) { return ENGINE.cellVals(planDoc(week)); }
 function opPlan(week, cell, value, opts) { var f = {}; f[cell] = { v: value, ts: tsNow() }; queueOp({ type: "plan", week: week, f: f }, opts); }
@@ -205,12 +206,31 @@ function syncNav() {
   var btns = document.querySelectorAll("#bottomNav button");
   btns.forEach(function (b) { b.classList.toggle("on", b.getAttribute("data-tab") === ui.tab); });
 }
+var histGuard = false;
+function histSnapshot() { return { tab: ui.tab, planStep: ui.planStep || null, planWs: ui.planWs || null }; }
+function pushHistory() {
+  if (histGuard) return;
+  try { history.pushState(histSnapshot(), ""); } catch (e) {}
+}
+window.addEventListener("popstate", function (ev) {
+  var st = ev.state;
+  if (!st || !st.tab) return;
+  histGuard = true;
+  ui.tab = st.tab;
+  if (st.planStep) ui.planStep = st.planStep;
+  ui.planWs = st.planWs || undefined;
+  saveUi();
+  render(true);
+  window.scrollTo(0, 0);
+  histGuard = false;
+});
 function gotoTab(tab, planStep) {
   ui.tab = tab;
   if (planStep) ui.planStep = planStep;
   saveUi();
   render(true);
   window.scrollTo(0, 0);
+  pushHistory();
 }
 
 /* ---------------- Today tab (1.3) ---------------- */
@@ -245,7 +265,7 @@ function renderToday() {
   h += '<section class="card hero"><div class="daynav">' +
     '<button class="nav-arrow" data-act="day-prev" aria-label="Previous day">‹</button>' +
     '<div><div class="day-title">' + (date === todayStr ? "Today" : date === addDays(todayStr, -1) ? "Yesterday" : ENGINE.DAYN[dowOf(date)]) + '</div>' +
-    '<div class="day-sub">' + esc(longDate(date)) + '</div></div>' +
+    '<div class="day-sub">' + esc(longDate(date)) + ((date === todayStr && new Date().getHours() < 4) ? ' · until 4am' : '') + '</div></div>' +
     '<button class="nav-arrow" data-act="day-next" aria-label="Next day"' + (date >= todayStr ? " disabled" : "") + '>›</button></div>';
   if (rest) h += '<div class="rest-score">✦ no tracking today</div>';
   else {
@@ -267,10 +287,16 @@ function renderToday() {
       '<span class="dot-l"' + (d === todayStr ? ' style="color:var(--accent);font-weight:800"' : "") + '>' + letters[i] + '</span></div>';
   }
   h += '</div>';
-  h += '<div class="stats-line"><b>' + workoutsInWeek(date) + '/' + getSetting("workoutTarget") + '</b> workouts this week · <b>' + streakCount() + '</b> day streak (7+)</div>';
+  h += '<div class="stats-line"><b>' + workoutsInWeek(date) + '/' + getSetting("workoutTarget") + '</b> workouts this week · <b>' + streakCount() + '</b> day streak</div>';
   h += '</section>';
 
   if (rest) {
+    if (rest === "Rest day") {
+      // Manual rest day (restOverride "rest"): plain screen, no Shabbos copy.
+      h += '<section class="card"><h2>Rest day</h2>' +
+        '<p><b>Rest day</b>: nothing to track. Enjoy it.</p></section>';
+      return h;
+    }
     var isYt = !!YOMTOV[date];
     h += '<section class="card"><h2>' + (isYt ? "Gut Yom Tov" : "Good Shabbos") + '</h2>' +
       '<p><b>' + esc(rest) + '</b>: nothing to track. Enjoy it.</p>' +
@@ -374,11 +400,12 @@ function renderToday() {
   var thisWeekEntry = null;
   entries.forEach(function (e) { if (e.date >= weekSunday(todayStr) && e.date <= todayStr) thisWeekEntry = e; });
   var status = thisWeekEntry ? "Done this week ✓" : entries.length ? "Last: " + shortDate(entries[entries.length - 1].date) : "Not yet";
-  h += '<details class="card" id="weighDetails"' + (ui.weighOpen ? " open" : "") + '><summary>Weekly check-in · optional <span class="muted small">' + status + '</span></summary>' +
+  h += '<details class="card" id="weighDetails"' + (ui.weighOpen ? " open" : "") + '><summary>Weekly check-in · optional · <span class="muted small">' + status + '</span></summary>' +
     '<p class="muted">Once a week if you feel like it: same morning, after the bathroom, before eating. It\'s just for the trend.</p>';
   if (!isRest(todayStr)) {
     h += '<div class="row wrap"><label>Weight (lb)<br><input class="checkin-num" id="ciWeight" data-keep type="number" step="0.1" min="50" max="700" inputmode="decimal" value="' + (thisWeekEntry && typeof thisWeekEntry.weight === "number" ? thisWeekEntry.weight : "") + '"></label>' +
       '<label>Waist (in)<br><input class="checkin-num" id="ciWaist" data-keep type="number" step="0.01" min="10" max="90" inputmode="decimal" value="' + (thisWeekEntry && typeof thisWeekEntry.waist === "number" ? thisWeekEntry.waist : "") + '"></label></div>' +
+      '<p class="inline-err" id="ciError" role="alert" hidden></p>' +
       '<p><button class="btn primary" data-act="checkin-save">Save check-in</button></p>';
   }
   var wEntries = entries.filter(function (e) { return typeof e.weight === "number"; });
@@ -401,10 +428,18 @@ function renderToday() {
 
 /* ---------------- Workout tab (1.4) ---------------- */
 var restTimer = { end: 0, int: null, doneUntil: 0 };
-function stopRestTimer() { if (restTimer.int) clearInterval(restTimer.int); restTimer.int = null; restTimer.end = 0; }
-function startRestTimer() {
-  stopRestTimer();
-  restTimer.end = Date.now() + 60000;
+function saveRestEnd() {
+  if (restTimer.end) { ui.restEnd = restTimer.end; ui.restDate = selDate; }
+  else { delete ui.restEnd; delete ui.restDate; }
+  saveUi();
+}
+function stopRestTimer() {
+  if (restTimer.int) clearInterval(restTimer.int);
+  restTimer.int = null; restTimer.end = 0;
+  saveRestEnd();
+}
+function runRestCountdown() {
+  if (restTimer.int) clearInterval(restTimer.int);
   restTimer.int = setInterval(function () {
     var left = Math.max(0, Math.round((restTimer.end - Date.now()) / 1000));
     var el = document.getElementById("restTimerLabel");
@@ -418,17 +453,40 @@ function startRestTimer() {
     }
     if (el) el.textContent = "Rest " + Math.floor(left / 60) + ":" + pad2(left % 60) + " · tap to stop";
   }, 250);
+}
+function startRestTimer() {
+  if (restTimer.int) clearInterval(restTimer.int);
+  restTimer.end = Date.now() + 60000;
+  saveRestEnd();
+  runRestCountdown();
   render(true);
 }
+// Resume a rest timer that was running before a refresh / app switch.
+function ensureRestTimer() {
+  if (!ui.restEnd) return;
+  if (ui.restEnd > Date.now()) {
+    if (restTimer.end !== ui.restEnd) { restTimer.end = ui.restEnd; runRestCountdown(); }
+  } else {
+    delete ui.restEnd; delete ui.restDate; saveUi();
+    restTimer.end = 0;
+    if (restTimer.doneUntil < Date.now()) {
+      restTimer.doneUntil = Date.now() + 4000;
+      setTimeout(function () { render(true); }, 4100);
+    }
+  }
+}
+function restRunning() { return !!restTimer.end || !!(ui.restEnd && ui.restEnd > Date.now()); }
 function moveAmount(mv, L) {
   if (mv.secs) return (mv.secs + 5 * L) + " sec";
   if (mv.repsHi) return (mv.reps + L) + "–" + (mv.repsHi + L) + " reps";
   return (mv.reps + L) + " " + mv.unit;
 }
 function renderWorkout() {
-  var date = selDate, L = getSetting("workoutLevel"), rounds = getSetting("workoutRounds");
+  ensureRestTimer();
+  var date = selDate, L = workoutLevel(), rounds = getSetting("workoutRounds");
   var rest = restName(date);
-  var h = '<section class="card"><h2>20-minute home workout</h2>' +
+  var h = (date !== todayStr ? '<div class="banner">Logging for ' + esc(longDate(date)) + '. <button class="link-btn" data-act="goto-today">Back to today</button></div>' : "") +
+    '<section class="card"><h2>20-minute home workout</h2>' +
     '<p class="muted">' + rounds + ' rounds of the 5 moves. Rest 1 minute between rounds. No gym needed.</p>' +
     '<p><b>' + workoutsInWeek(date) + '/' + getSetting("workoutTarget") + '</b> this week' + (date !== todayStr ? ' · for ' + esc(longDate(date)) : "") + '</p>';
   var marks = (ui.rounds[date] || []).slice();
@@ -436,7 +494,8 @@ function renderWorkout() {
   for (var i = 0; i < rounds; i++) h += '<button class="chip' + (marks[i] ? " on" : "") + '" data-act="round" data-i="' + i + '">Round ' + (i + 1) + (marks[i] ? " ✓" : "") + '</button>';
   h += '</div>';
   var timerLabel = "Start 1:00 rest";
-  if (restTimer.end) { var left = Math.max(0, Math.round((restTimer.end - Date.now()) / 1000)); timerLabel = "Rest " + Math.floor(left / 60) + ":" + pad2(left % 60) + " · tap to stop"; }
+  var restEndShown = restTimer.end || (ui.restEnd && ui.restEnd > Date.now() ? ui.restEnd : 0);
+  if (restEndShown) { var left = Math.max(0, Math.round((restEndShown - Date.now()) / 1000)); timerLabel = "Rest " + Math.floor(left / 60) + ":" + pad2(left % 60) + " · tap to stop"; }
   else if (Date.now() < restTimer.doneUntil) timerLabel = "Rest done. Next round!";
   h += '<button class="btn timer-btn" data-act="rest-timer"><span id="restTimerLabel">' + timerLabel + '</span></button></section>';
 
@@ -453,7 +512,7 @@ function renderWorkout() {
   });
 
   h += '<section class="card"><h3>Progression</h3><p class="muted">Add 1–2 reps a week (plank: +5 sec). When 3 rounds feel easy, go to 4.</p>' +
-    '<div class="row spread"><div class="stepper"><button data-act="level" data-d="-1"' + (L <= 0 ? " disabled" : "") + ' aria-label="Level down">−</button><b>+' + L + '</b><button data-act="level" data-d="1" aria-label="Level up">+</button></div>' +
+    '<div class="row spread"><div class="stepper"><button data-act="level" data-d="-1"' + (L <= 0 ? " disabled" : "") + ' aria-label="Level down">−</button><b>+' + L + '</b><button data-act="level" data-d="1"' + (L >= 12 ? " disabled" : "") + ' aria-label="Level up">+</button></div>' +
     '<div class="seg"><button data-act="rounds-set" data-n="3" class="' + (rounds === 3 ? "on" : "") + '">3 rounds</button><button data-act="rounds-set" data-n="4" class="' + (rounds === 4 ? "on" : "") + '">4 rounds</button></div></div></section>';
 
   if (rest) h += '<section class="card"><p><b>' + esc(rest) + '</b>: no logging today.</p></section>';
@@ -552,23 +611,26 @@ function renderPlan() {
   h += '<div class="stepper-bar">' + stepsMeta.map(function (sm, i) {
     return '<button class="step-btn' + (step === sm[0] ? " on" : "") + '" data-act="plan-step" data-s="' + sm[0] + '">' + (stepDone[sm[0]] ? "✓" : (i + 1)) + ' ' + sm[1] + '</button>';
   }).join("") + '</div></section>';
-  // Cooking for: people per meal (srvB/srvL/srvD cells) — scales shopping + prep.
-  var srv = ENGINE.servingsOf(cells);
-  var srvRows = [["srvB", "Breakfast", srv.B], ["srvL", "Lunch", srv.L], ["srvD", "Dinner", srv.D]];
-  h += '<section class="card"><h3 style="margin-top:0">Cooking for</h3>' + srvRows.map(function (r) {
-    return '<div class="row spread"><span><b>' + r[1] + '</b></span><span class="stepper">' +
-      '<button data-act="srv" data-k="' + r[0] + '" data-d="-1"' + (r[2] <= 1 ? " disabled" : "") + ' aria-label="Fewer people at ' + r[1].toLowerCase() + '">−</button>' +
-      '<b>' + r[2] + (r[2] === 1 ? " person" : " people") + '</b>' +
-      '<button data-act="srv" data-k="' + r[0] + '" data-d="1"' + (r[2] >= 20 ? " disabled" : "") + ' aria-label="More people at ' + r[1].toLowerCase() + '">+</button></span></div>';
-  }).join("") + '<p class="muted small" style="margin-bottom:0">The shopping list and prep amounts scale to this. Your weekly staples and snacks stay sized for one.</p></section>';
   if (step === "pro") h += planProHTML(week, cells, ctx, pros);
   else if (step === "week") h += planWeekHTML(week, cells, ctx);
   else if (step === "shop") h += planShopHTML(week, cells, ctx, shop, tickedLines, totalLines);
   else h += planPrepHTML(week, cells, ctx, prepR);
   return h;
 }
+function cookingForHTML(cells) {
+  // Cooking for: people per meal (srvB/srvL/srvD cells) — scales shopping + prep.
+  var srv = ENGINE.servingsOf(cells);
+  var srvRows = [["srvB", "Breakfast", srv.B], ["srvL", "Lunch", srv.L], ["srvD", "Dinner", srv.D]];
+  return '<section class="card"><h3 style="margin-top:0">Cooking for</h3>' + srvRows.map(function (r) {
+    return '<div class="row spread"><span><b>' + r[1] + '</b></span><span class="stepper">' +
+      '<button data-act="srv" data-k="' + r[0] + '" data-d="-1"' + (r[2] <= 1 ? " disabled" : "") + ' aria-label="Fewer people at ' + r[1].toLowerCase() + '">−</button>' +
+      '<b>' + r[2] + (r[2] === 1 ? " person" : " people") + '</b>' +
+      '<button data-act="srv" data-k="' + r[0] + '" data-d="1"' + (r[2] >= 20 ? " disabled" : "") + ' aria-label="More people at ' + r[1].toLowerCase() + '">+</button></span></div>';
+  }).join("") + '<p class="muted small" style="margin-bottom:0">The shopping list and prep amounts scale to this. Your weekly staples and snacks stay sized for one.</p></section>';
+}
 function planProHTML(week, cells, ctx, pros) {
-  var h = '<section class="card"><h3>Pick this week\'s proteins</h3><div class="pgrid">';
+  var h = cookingForHTML(cells);
+  h += '<section class="card"><h3>Pick this week\'s proteins</h3><div class="pgrid">';
   PD.PROTEINS.forEach(function (p) {
     var picked = pros.indexOf(p[0]) >= 0;
     var dis = !picked && pros.length >= 4;
@@ -599,7 +661,7 @@ function mealCardHTML(ctx, cells, key) {
   var r = ENGINE.resolve(ctx, cells, key);
   if (!r) return "";
   var slotName = r.slot === "L" ? "Lunch ~1pm" : "Dinner ~8pm";
-  var h = '<div class="meal-card"><div class="row spread"><span class="slot-label">' + slotName + '</span>' +
+  var h = '<div class="meal-card" data-act="meal-pick" data-k="' + key + '"><div class="row spread"><span class="slot-label">' + slotName + '</span>' +
     '<span class="meal-actions"><button class="mini-btn" data-act="shuffle-one" data-k="' + key + '"' + (r.locked ? " disabled" : "") + ' aria-label="Shuffle this meal">🔀</button>' +
     '<button class="mini-btn" data-act="lock" data-k="' + key + '" aria-label="Lock this meal">' + (r.locked ? "🔒" : "🔓") + '</button></span></div>';
   if (!r.meal) { h += '<div class="meal-name muted">Nothing planned yet</div></div>'; return h; }
@@ -637,12 +699,7 @@ function planWeekHTML(week, cells, ctx) {
     }
     if (d > 5) continue;
     if (date < todayStr) {
-      var parts = [];
-      ["L", "D"].forEach(function (sl) {
-        var r = ENGINE.resolve(ctx, cells, "m" + d + sl);
-        if (r && r.meal) parts.push((r.lo ? "Leftovers: " : "") + r.meal.n);
-      });
-      h += '<div class="past-line"><b>' + ENGINE.DAY3[d] + '</b>  ' + esc(parts.join(" · ") || "—") + '</div>';
+      h += '<div class="past-line"><b>' + ENGINE.DAY3[d] + '</b>  —</div>';
       continue;
     }
     h += '<section class="card"><div class="day-head">' + ENGINE.DAYN[d] + ', ' + shortDate(date) + (date === todayStr ? ' · <span style="color:var(--accent)">today</span>' : "") + '</div>';
@@ -695,6 +752,7 @@ function planShopHTML(week, cells, ctx, shop, ticked, total) {
     }).join("") + '</section>';
   }
   h += '<section class="card"><div class="row wrap"><button class="btn" data-act="uncheck-all">Uncheck all</button>' +
+    '<button class="btn" data-act="share-shop">Share list</button>' +
     '<button class="btn primary" data-act="plan-step" data-s="prep">Next: prep day</button></div></section>';
   return h;
 }
@@ -780,7 +838,8 @@ function planPrepHTML(week, cells, ctx, prep) {
   h += '<details class="card"><summary>How long things keep</summary>' +
     PD.STORAGE.map(function (s) { return '<p><b>' + esc(s[0]) + '</b><br><span class="muted">' + esc(s[1]) + '</span></p>'; }).join("") + '</details>';
   h += '<section class="card"><p class="muted">Meat in meat pans and containers, dairy in dairy. Rice, veg and eggs in pareve pots go with anything. Label every container M / D / P.</p>' +
-    (doneT > 0 ? '<button class="btn" data-act="prep-clear">Clear prep ticks</button>' : "") + '</section>';
+    (doneT > 0 ? '<button class="btn" data-act="prep-clear">Clear prep ticks</button>' : "") +
+    '<p><button class="btn" data-act="share-prep">Share prep</button></p></section>';
   return h;
 }
 
@@ -822,7 +881,153 @@ function scheduleSnap() {
   }, 2500);
 }
 
+
+/* ---------------- undo toast ---------------- */
+var undoToastEl = null, undoToastTimer = null;
+function hideUndoToast() {
+  if (undoToastTimer) clearTimeout(undoToastTimer);
+  undoToastTimer = null;
+  if (undoToastEl) { undoToastEl.remove(); undoToastEl = null; }
+}
+function showUndoToast(msg, undoFn) {
+  hideUndoToast();
+  var el = document.createElement("div");
+  el.className = "undo-toast";
+  el.setAttribute("role", "status");
+  var span = document.createElement("span");
+  span.textContent = msg;
+  var btn = document.createElement("button");
+  btn.type = "button";
+  btn.textContent = "Undo";
+  btn.addEventListener("click", function () { hideUndoToast(); if (undoFn) undoFn(); });
+  el.appendChild(span);
+  el.appendChild(btn);
+  document.body.appendChild(el);
+  undoToastEl = el;
+  undoToastTimer = setTimeout(hideUndoToast, 5000);
+}
+function snapshotPlan(week) { return state.plans[week] ? JSON.parse(JSON.stringify(state.plans[week])) : null; }
+function restorePlan(week, snap) {
+  if (snap) state.plans[week] = snap; else delete state.plans[week];
+  saveLocal();
+  statusAfterEdit();
+  render(true);
+}
+
+/* ---------------- share / copy lists ---------------- */
+function shareOrCopy(title, text, btn) {
+  function copied() {
+    if (!btn) return;
+    var old = btn.textContent;
+    btn.textContent = "Copied ✓";
+    setTimeout(function () { btn.textContent = old; }, 2000);
+  }
+  if (navigator.share) { try { navigator.share({ title: title, text: text }).catch(function () {}); } catch (e) {} return; }
+  function fallback() {
+    var ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand("copy"); copied(); } catch (e) { window.alert(text); }
+    ta.remove();
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(copied, fallback);
+  else fallback();
+}
+function shopShareText(week) {
+  var cells = planCells(week), ctx = planCtx(week), shop = ENGINE.shopping(ctx, cells);
+  var out = ["Shopping list · " + shortDate(week) + " – " + shortDate(addDays(week, 5))];
+  shop.sections.forEach(function (sec) {
+    if (sec.key === "mine") {
+      if (!shop.customs.length) return;
+      out.push("", sec.name);
+      shop.customs.forEach(function (c) { out.push((cells["g_c_" + c.id] ? "✓ " : "• ") + c.n + (c.q ? " — " + c.q : "")); });
+      return;
+    }
+    if (!sec.lines.length) return;
+    out.push("", sec.name);
+    sec.lines.forEach(function (l) { out.push((cells["g_" + l.id] ? "✓ " : "• ") + l.name + (l.qty ? " — " + l.qty : " — check you have")); });
+  });
+  return out.join("\n");
+}
+function prepShareText(week) {
+  var cells = planCells(week), ctx = planCtx(week), prep = ENGINE.prep(ctx, cells, getSetting("prepDay"));
+  var out = ["Prep · " + ENGINE.DAYN[prep.prepDay] + " · about " + prep.durText + " · " + prep.containers + " containers"];
+  if (prep.steps.length) {
+    out.push("", "The session");
+    prep.steps.forEach(function (st) { out.push(ENGINE.clock(st.start) + " " + st.title + (st.amount ? " · " + st.amount : "")); });
+  }
+  function portionBlock(title, list) {
+    if (!list.length) return;
+    out.push("", title);
+    list.forEach(function (pp) { out.push("• " + ENGINE.DAY3[pp.dow] + " " + (pp.slot === "L" ? "Lunch" : "Dinner") + ": " + pp.name); });
+  }
+  portionBlock("Fridge", prep.fridge);
+  portionBlock("Freezer", prep.freezer);
+  if (prep.cookFresh.length) {
+    out.push("", "Cook fresh that day");
+    prep.cookFresh.forEach(function (c) { out.push("• " + ENGINE.DAY3[c.dow] + " " + (c.slot === "L" ? "Lunch" : "Dinner") + ": " + c.name); });
+  }
+  if (prep.midweek.tasks.length || prep.midweek.thaws.length) {
+    out.push("", "Mid-week · " + ENGINE.DAYN[prep.midweek.day] + " night top-up");
+    prep.midweek.tasks.forEach(function (t) { out.push("• " + t.title + (t.amount ? " · " + t.amount : "")); });
+    prep.midweek.thaws.forEach(function (t) { out.push("• " + t.text + " — the night before"); });
+  }
+  return out.join("\n");
+}
+
+/* ---------------- meal picker ---------------- */
+var mpKey = null;
+function openMealPicker(key) {
+  var week = currentPlanWeek(), cells = planCells(week), ctx = planCtx(week);
+  var m = /^m(\d)([LD])$/.exec(key);
+  if (!m) return;
+  mpKey = key;
+  var dow = +m[1], slot = m[2];
+  var pros = ENGINE.proteinsOf(cells);
+  var other = ENGINE.resolve(ctx, cells, "m" + dow + (slot === "L" ? "D" : "L"));
+  var otherTag = other && other.meal ? other.meal.t : null;
+  document.getElementById("mpTitle").textContent = ENGINE.DAYN[dow] + " " + (slot === "L" ? "lunch" : "dinner") + " — pick a meal";
+  var html = "";
+  if (slot === "L" && dow > 0) {
+    var prevD = ENGINE.resolve(ctx, cells, "m" + (dow - 1) + "D");
+    if (prevD && prevD.meal && prevD.meal.lo) {
+      html += '<button class="mp-opt" data-act="mp-lo">' + tagPill(prevD.meal.t) + '<span>Leftovers: ' + esc(prevD.meal.n) + '</span><span class="mp-min">reheat</span></button>';
+    }
+  }
+  var list = Object.keys(PD.MEALS).map(function (id) { return PD.MEALS[id]; }).filter(function (meal) {
+    if (pros.indexOf(meal.p) < 0) return false;
+    if (meal.s.indexOf(slot) < 0) return false;
+    if (otherTag === "D" && meal.t === "M") return false;
+    if (otherTag === "M" && meal.t === "D") return false;
+    return true;
+  });
+  list.sort(function (a, b) { return a.n < b.n ? -1 : a.n > b.n ? 1 : 0; });
+  list.forEach(function (meal) {
+    html += '<button class="mp-opt" data-act="mp-pick" data-id="' + meal.id + '">' + tagPill(meal.t) + '<span>' + esc(meal.n) + '</span><span class="mp-min">' + meal.min + ' min</span></button>';
+  });
+  if (!list.length && !html) html = '<p class="muted">No library meals match this slot with the week\'s proteins. Pick proteins first, or shuffle instead.</p>';
+  html += '<button class="mp-opt" data-act="mp-clear"><span>Clear this slot</span></button>';
+  document.getElementById("mpList").innerHTML = html;
+  var dlg = document.getElementById("mealPickerDlg");
+  if (typeof dlg.showModal === "function" && !dlg.open) dlg.showModal();
+}
+function closeMealPicker() {
+  var dlg = document.getElementById("mealPickerDlg");
+  if (dlg && dlg.open) dlg.close();
+  mpKey = null;
+}
+
 /* ---------------- actions ---------------- */
+function addCustomItem() {
+  var inp = document.getElementById("customAdd");
+  var name = inp ? inp.value.trim().slice(0, 60) : "";
+  if (!name) return;
+  var cid = Date.now().toString(36);
+  opPlan(currentPlanWeek(), "c_" + cid, { n: name, at: Date.now() }, { silent: true });
+  render(true); // forced: focus is still in the input, and render() normally skips re-rendering then
+}
 function writeCells(week, newCells, onlyKeys) {
   var cur = planCells(week);
   var keys = onlyKeys || Object.keys(newCells);
@@ -858,34 +1063,48 @@ function buildWeek(week) {
   saveLocal();
   statusAfterEdit();
   render(true);
+  pushHistory();
 }
 
 var stepsSaveTimer = null;
 function saveSteps(input, immediate) {
-  var save = function () {
-    var raw = input.value.trim();
-    var n = raw === "" ? null : Math.round(Number(raw));
-    if (raw !== "" && (!isFinite(n) || n === null)) return;
-    if (typeof n === "number") n = Math.max(0, Math.min(100000, n));
-    if (getDayF(selDate, "steps") === (n === null ? undefined : n) || (n === null && getDayF(selDate, "steps") === undefined)) { if (immediate) render(true); return; }
-    opDaySilent(selDate, "steps", n, { render: immediate });
-    if (immediate) render(true);
-  };
-  if (immediate) { clearTimeout(stepsSaveTimer); save(); }
-  else { clearTimeout(stepsSaveTimer); stepsSaveTimer = setTimeout(save, 700); }
+  // Save synchronously on every input so a reload can never lose the value;
+  // only the visual settle (progress bar re-render) is debounced.
+  var raw = input.value.trim();
+  var n = raw === "" ? null : Math.round(Number(raw));
+  if (raw !== "" && !isFinite(n)) return;
+  if (typeof n === "number") n = Math.max(0, Math.min(100000, n));
+  var cur = getDayF(selDate, "steps");
+  var unchanged = (n === null && cur === undefined) || cur === n;
+  if (!unchanged) opDaySilent(selDate, "steps", n, { silent: true });
+  clearTimeout(stepsSaveTimer);
+  if (immediate) { statusAfterEdit(); render(true); }
+  else stepsSaveTimer = setTimeout(function () { render(); }, 700);
+}
+function flushSteps() {
+  var inp = document.getElementById("stepsInput");
+  if (inp) saveSteps(inp, false);
 }
 
 document.addEventListener("click", function (ev) {
+  // Bug 5: tapping anywhere on a shop / prep row toggles its checkbox.
+  if (ev.target && ev.target.closest) {
+    var rowEl = ev.target.closest(".shop-line, .prep-step");
+    if (rowEl && !ev.target.closest("button, a, input, textarea, select")) {
+      var rowCb = rowEl.querySelector('input[type="checkbox"][data-act]');
+      if (rowCb) { rowCb.click(); return; }
+    }
+  }
   var el = ev.target.closest ? ev.target.closest("[data-act]") : null;
   if (!el) return;
   var act = el.getAttribute("data-act");
   // tabs
-  if (act === "tab") { ui.tab = el.getAttribute("data-tab"); saveUi(); render(true); window.scrollTo(0, 0); return; }
+  if (act === "tab") { gotoTab(el.getAttribute("data-tab")); return; }
   if (act === "goto-workout") { gotoTab("workout"); return; }
   if (act === "goto-plan-week") { ui.planWs = weekSunday(selDate); gotoTab("plan", "week"); return; }
   if (act === "goto-plan-prep") { gotoTab("plan", "prep"); return; }
   if (act === "goto-plan-pro") { gotoTab("plan", "pro"); return; }
-  if (act === "shabbos-tips") { ui.tab = "meals"; saveUi(); render(true); setTimeout(function () { var c = document.getElementById("shabbosCard"); if (c) c.scrollIntoView({ behavior: "smooth" }); }, 60); return; }
+  if (act === "shabbos-tips") { gotoTab("meals"); setTimeout(function () { var c = document.getElementById("shabbosCard"); if (c) c.scrollIntoView({ behavior: "smooth" }); }, 60); return; }
   if (act === "meals-jump") { var t = document.getElementById(el.getAttribute("data-t")); if (t) t.scrollIntoView({ behavior: "smooth" }); return; }
   if (act === "acc") { ui.mealOpen = ui.mealOpen === el.getAttribute("data-k") ? "" : el.getAttribute("data-k"); saveUi(); render(true); return; }
   // today
@@ -905,8 +1124,11 @@ document.addEventListener("click", function (ev) {
     var wIn = document.getElementById("ciWeight"), waIn = document.getElementById("ciWaist");
     var wRaw = wIn ? wIn.value.trim() : "", waRaw = waIn ? waIn.value.trim() : "";
     var w = wRaw === "" ? null : Number(wRaw), wa = waRaw === "" ? null : Number(waRaw);
-    if (w !== null && (!(w >= 50 && w <= 700))) { wIn.focus(); return; }
-    if (wa !== null && (!(wa >= 10 && wa <= 90))) { waIn.focus(); return; }
+    var ciErr = document.getElementById("ciError");
+    function ciFail(msg, inp) { if (ciErr) { ciErr.textContent = msg; ciErr.hidden = false; } if (inp) inp.focus(); }
+    if (w !== null && (!(w >= 50 && w <= 700))) { ciFail("Weight must be between 50 and 700 lb.", wIn); return; }
+    if (wa !== null && (!(wa >= 10 && wa <= 90))) { ciFail("Waist must be between 10 and 90 in.", waIn); return; }
+    if (ciErr) { ciErr.textContent = ""; ciErr.hidden = true; }
     var entries = checkinEntries(), target = todayStr;
     entries.forEach(function (e) { if (e.date >= weekSunday(todayStr) && e.date <= todayStr) target = e.date; });
     if (w !== null) opDaySilent(target, "weight", Math.round(w * 10) / 10, { silent: true });
@@ -922,14 +1144,14 @@ document.addEventListener("click", function (ev) {
     ui.rounds[date] = arr;
     Object.keys(ui.rounds).forEach(function (d) { if (d < addDays(todayStr, -7)) delete ui.rounds[d]; });
     saveUi();
-    if (arr[i] && i < getSetting("workoutRounds") - 1 && !restTimer.end) startRestTimer(); else render(true);
+    if (arr[i] && i < getSetting("workoutRounds") - 1 && !restRunning()) startRestTimer(); else render(true);
     return;
   }
   if (act === "rest-timer") {
-    if (restTimer.end) { stopRestTimer(); render(true); } else startRestTimer();
+    if (restRunning()) { stopRestTimer(); render(true); } else startRestTimer();
     return;
   }
-  if (act === "level") { opSettings("workoutLevel", Math.max(0, getSetting("workoutLevel") + (+el.getAttribute("data-d")))); return; }
+  if (act === "level") { opSettings("workoutLevel", Math.max(0, Math.min(12, workoutLevel() + (+el.getAttribute("data-d"))))); return; }
   if (act === "rounds-set") { opSettings("workoutRounds", +el.getAttribute("data-n")); return; }
   if (act === "workout-done") {
     var wo = !!getDayF(selDate, "workout");
@@ -937,14 +1159,20 @@ document.addEventListener("click", function (ev) {
     var f2 = {};
     f2.workout = { v: true, ts: tsNow() };
     f2.workoutOff = { v: false, ts: tsNow() };
-    f2.workoutNote = { v: getSetting("workoutRounds") + " rounds, reps +" + getSetting("workoutLevel"), ts: tsNow() };
+    f2.workoutNote = { v: getSetting("workoutRounds") + " rounds, reps +" + workoutLevel(), ts: tsNow() };
     queueOp({ type: "day", date: selDate, f: f2 });
     buzz(20);
     return;
   }
   // plan
-  if (act === "plan-week") { ui.planWs = el.getAttribute("data-w"); saveUi(); render(true); return; }
-  if (act === "plan-step") { ui.planStep = el.getAttribute("data-s"); saveUi(); render(true); return; }
+  if (act === "plan-week") {
+    var wNew = el.getAttribute("data-w");
+    ui.planWs = wNew;
+    if (!planHasMeals(wNew)) ui.planStep = "pro";
+    saveUi(); render(true); pushHistory();
+    return;
+  }
+  if (act === "plan-step") { ui.planStep = el.getAttribute("data-s"); saveUi(); render(true); pushHistory(); return; }
   if (act === "pro") {
     var week = currentPlanWeek(), cells = planCells(week), id = el.getAttribute("data-id");
     var pros = ENGINE.proteinsOf(cells), ix = pros.indexOf(id);
@@ -982,6 +1210,21 @@ document.addEventListener("click", function (ev) {
     saveLocal(); statusAfterEdit(); render(true);
     return;
   }
+  if (act === "meal-pick") { openMealPicker(el.getAttribute("data-k")); return; }
+  if (act === "mp-pick" || act === "mp-lo" || act === "mp-clear") {
+    var weekM = currentPlanWeek(), cellsM = planCells(weekM), keyM = mpKey;
+    if (!keyM) { closeMealPicker(); return; }
+    var curM = cellsM[keyM];
+    var valM = null;
+    if (act === "mp-pick") valM = { id: el.getAttribute("data-id") };
+    else if (act === "mp-lo") valM = { lo: 1 };
+    if (valM && curM && curM.k) valM.k = true;
+    closeMealPicker();
+    opPlan(weekM, keyM, valM);
+    return;
+  }
+  if (act === "share-shop") { shareOrCopy("Steady shopping list", shopShareText(currentPlanWeek()), el); return; }
+  if (act === "share-prep") { shareOrCopy("Steady prep", prepShareText(currentPlanWeek()), el); return; }
   if (act === "lock") {
     var week5 = currentPlanWeek(), cells5 = planCells(week5), key5 = el.getAttribute("data-k");
     var cur5 = cells5[key5];
@@ -996,10 +1239,12 @@ document.addEventListener("click", function (ev) {
     return;
   }
   if (act === "week-clear") {
-    if (!window.confirm("Start this week over? This clears the meals, list ticks and prep ticks for this week.")) return;
     var week7 = currentPlanWeek();
-    queueOp({ type: "plan", week: week7, clear: tsNow(), f: {} });
+    var snap7 = snapshotPlan(week7);
     ui.planStep = "pro"; saveUi();
+    queueOp({ type: "plan", week: week7, clear: tsNow(), f: {} });
+    pushHistory();
+    showUndoToast("Week cleared.", function () { restorePlan(week7, snap7); });
     return;
   }
   if (act === "gtick") {
@@ -1014,39 +1259,40 @@ document.addEventListener("click", function (ev) {
   }
   if (act === "hide-staple") { opPlan(currentPlanWeek(), "h_" + el.getAttribute("data-id"), true); return; }
   if (act === "unhide") { opPlan(currentPlanWeek(), "h_" + el.getAttribute("data-id"), false); return; }
-  if (act === "custom-add") {
-    var inp = document.getElementById("customAdd");
-    var name = inp ? inp.value.trim().slice(0, 60) : "";
-    if (!name) return;
-    var cid = Date.now().toString(36);
-    opPlan(currentPlanWeek(), "c_" + cid, { n: name, at: Date.now() });
-    return;
-  }
+  if (act === "custom-add") { addCustomItem(); return; }
   if (act === "custom-del") { opPlan(currentPlanWeek(), el.getAttribute("data-cell"), null); return; }
   if (act === "uncheck-all") {
-    if (!window.confirm("Uncheck the whole list?")) return;
     var week9 = currentPlanWeek(), cells9 = planCells(week9);
+    var snap9 = snapshotPlan(week9);
     Object.keys(cells9).forEach(function (k) { if (k.indexOf("g_") === 0 && cells9[k]) opPlan(week9, k, false, { silent: true }); });
     saveLocal(); statusAfterEdit(); render(true);
+    showUndoToast("Shopping list unchecked.", function () { restorePlan(week9, snap9); });
     return;
   }
   if (act === "prepday") { opSettings("prepDay", +el.getAttribute("data-d")); return; }
   if (act === "prep-clear") {
     var weekA = currentPlanWeek(), cellsA = planCells(weekA);
+    var snapA = snapshotPlan(weekA);
     Object.keys(cellsA).forEach(function (k) { if (k.indexOf("t_") === 0 && cellsA[k]) opPlan(weekA, k, false, { silent: true }); });
     saveLocal(); statusAfterEdit(); render(true);
+    showUndoToast("Prep ticks cleared.", function () { restorePlan(weekA, snapA); });
     return;
   }
   // settings dialog buttons
   if (act === "rest-set") {
     var mode = el.getAttribute("data-m");
     opDay(selDate, "restOverride", mode === "clear" ? null : mode);
-    setTimeout(openSettings, 50);
+    var dlgR = document.getElementById("settingsDlg");
+    if (dlgR && dlgR.open) dlgR.close();
     return;
   }
 });
 document.addEventListener("input", function (ev) {
   if (ev.target && ev.target.id === "stepsInput") saveSteps(ev.target, false);
+  if (ev.target && (ev.target.id === "ciWeight" || ev.target.id === "ciWaist")) {
+    var ce = document.getElementById("ciError");
+    if (ce) { ce.textContent = ""; ce.hidden = true; }
+  }
 });
 document.addEventListener("change", function (ev) {
   if (ev.target && ev.target.id === "stepsInput") saveSteps(ev.target, true);
@@ -1057,7 +1303,7 @@ document.addEventListener("toggle", function (ev) {
 }, true);
 document.addEventListener("keydown", function (ev) {
   if (ev.key !== "Enter") return;
-  if (ev.target && ev.target.id === "customAdd") { ev.preventDefault(); var b = document.querySelector('[data-act="custom-add"]'); if (b) b.click(); }
+  if (ev.target && ev.target.id === "customAdd") { ev.preventDefault(); addCustomItem(); }
 });
 
 /* ---------------- settings dialog (1.8) ---------------- */
@@ -1069,12 +1315,15 @@ function openSettings() {
   document.getElementById("setRestLabel").textContent = "Rest day for " + longDate(selDate) + ": " + (rn || "Normal day");
   var ctl = "";
   if (ov !== "normal") ctl += '<button class="btn" data-act="rest-set" data-m="normal">Track this day anyway</button>';
-  if (ov !== "rest") ctl += '<button class="btn" data-act="rest-set" data-m="rest">Mark as a rest day</button>';
+  if (!rn) ctl += '<button class="btn" data-act="rest-set" data-m="rest">Mark as a rest day</button>';
   if (ov) ctl += '<button class="btn" data-act="rest-set" data-m="clear">Reset to calendar</button>';
   document.getElementById("setRestCtl").innerHTML = ctl;
+  var lbEl2 = document.getElementById("lastBackupLine");
+  if (lbEl2) { var lb2 = lastBackupInfo(); lbEl2.textContent = lb2.text; lbEl2.className = "small " + (lb2.warn ? "warn" : "muted"); }
   if (typeof dlg.showModal === "function" && !dlg.open) dlg.showModal();
 }
 document.getElementById("gearBtn").addEventListener("click", openSettings);
+document.getElementById("mpClose").addEventListener("click", closeMealPicker);
 document.getElementById("setSave").addEventListener("click", function () {
   var sg = Number(document.getElementById("setStepGoal").value);
   var wt = Number(document.getElementById("setWorkoutTarget").value);
@@ -1082,8 +1331,189 @@ document.getElementById("setSave").addEventListener("click", function () {
   if (wt >= 1 && wt <= 7 && wt !== getSetting("workoutTarget")) opSettings("workoutTarget", Math.round(wt));
 });
 
+
+/* ---------------- backup restore validation ---------------- */
+function sbIsObj(x) { return !!x && typeof x === "object" && !Array.isArray(x); }
+function sbNum(v) { return typeof v === "number" && isFinite(v) ? v : null; }
+function sanitizeBackup(parsed) {
+  var fixed = 0;
+  function cell(raw) {
+    if (!sbIsObj(raw) || !("v" in raw)) return null;
+    var ts = sbNum(raw.ts);
+    if (ts === null) ts = 0;
+    return { v: raw.v, ts: ts };
+  }
+  var DAY_BOOL = ["proteinB", "proteinL", "proteinD", "vegL", "vegD", "mealsPlan", "treat", "kitchenClosed", "drinks", "noAlcohol", "workout", "workoutOff", "bed", "seconds", "caughtUp"];
+  var DAY_NUM = { steps: [0, 100000], weight: [50, 700], waist: [10, 90], water: [0, 100000] };
+  var DAY_STR = ["workoutNote", "note"];
+  function cleanDayField(name, c) {
+    if (DAY_BOOL.indexOf(name) >= 0) {
+      if (typeof c.v === "boolean") return c;
+      c.v = !!c.v; fixed++; return c;
+    }
+    if (DAY_NUM[name]) {
+      var n = sbNum(c.v), r = DAY_NUM[name];
+      if (n === null || n < r[0] || n > r[1]) { fixed++; return null; }
+      return c;
+    }
+    if (DAY_STR.indexOf(name) >= 0) {
+      if (typeof c.v !== "string") { fixed++; return null; }
+      if (c.v.length > 500) { c.v = c.v.slice(0, 500); fixed++; }
+      return c;
+    }
+    if (name === "restOverride") {
+      if (c.v === "rest" || c.v === "normal" || c.v === null) return c;
+      fixed++; return null;
+    }
+    fixed++; return null; // unknown day field dropped
+  }
+  function cleanFields(f, cleaner) {
+    var out = {};
+    if (!sbIsObj(f)) return out;
+    Object.keys(f).forEach(function (k) {
+      var c = cell(f[k]);
+      if (!c) { fixed++; return; }
+      var cc = cleaner(k, c);
+      if (cc) out[k] = cc;
+    });
+    return out;
+  }
+  var SET_CLAMP = { stepGoal: [1000, 40000], workoutTarget: [1, 7], workoutLevel: [0, 12], prepDay: [0, 5] };
+  var SET_MIN0 = ["targetRate", "waterGoal", "heightIn", "startWeight", "goalWeight", "calorieTarget", "proteinTarget"];
+  function cleanSetting(name, c) {
+    if (SET_CLAMP[name]) {
+      var n = sbNum(c.v);
+      if (n === null) { fixed++; return null; }
+      var r = SET_CLAMP[name], cl = Math.max(r[0], Math.min(r[1], Math.round(n)));
+      if (cl !== c.v) { c.v = cl; fixed++; }
+      return c;
+    }
+    if (name === "workoutRounds") {
+      if (c.v === 3 || c.v === 4) return c;
+      fixed++; return null;
+    }
+    if (SET_MIN0.indexOf(name) >= 0) {
+      var n2 = sbNum(c.v);
+      if (n2 === null || n2 < 0 || n2 > 100000) { fixed++; return null; }
+      return c;
+    }
+    if (name === "planStartDate" || name === "baselineStartDate") {
+      if (typeof c.v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(c.v)) return c;
+      if (c.v === null) return c;
+      fixed++; return null;
+    }
+    fixed++; return null;
+  }
+  function cleanPlanCell(name, c) {
+    if (!/^[A-Za-z0-9_.:-]{1,64}$/.test(name)) { fixed++; return null; }
+    if (name === "srvB" || name === "srvL" || name === "srvD") {
+      var n = sbNum(c.v);
+      if (n === null) { fixed++; return null; }
+      var cl = Math.max(1, Math.min(20, Math.round(n)));
+      if (cl !== c.v) { c.v = cl; fixed++; }
+      return c;
+    }
+    if (/^(g_|h_|t_)/.test(name)) {
+      if (typeof c.v === "boolean") return c;
+      c.v = !!c.v; fixed++; return c;
+    }
+    if (name === "pro") {
+      if (!Array.isArray(c.v)) { fixed++; return null; }
+      var f2 = c.v.filter(function (x) { return typeof x === "string"; });
+      if (f2.length !== c.v.length) fixed++;
+      c.v = f2.slice(0, 4);
+      return c;
+    }
+    if (name === "bk") {
+      if (Array.isArray(c.v) && c.v.length >= 2 && typeof c.v[0] === "string" && typeof c.v[1] === "string") { c.v = [c.v[0], c.v[1]]; return c; }
+      fixed++; return null;
+    }
+    if (/^m\d[LD]$/.test(name)) {
+      if (!sbIsObj(c.v)) { fixed++; return null; }
+      var o = {};
+      if (typeof c.v.id === "string") o.id = c.v.id;
+      if (c.v.lo) o.lo = 1;
+      if (c.v.k) o.k = true;
+      if (!o.id && !o.lo) { fixed++; return null; }
+      c.v = o; return c;
+    }
+    if (name.indexOf("c_") === 0) {
+      if (!sbIsObj(c.v) || typeof c.v.n !== "string") { fixed++; return null; }
+      c.v = { n: c.v.n.slice(0, 60), q: typeof c.v.q === "string" ? c.v.q.slice(0, 60) : undefined, at: sbNum(c.v.at) || 0 };
+      if (c.v.q === undefined) delete c.v.q;
+      return c;
+    }
+    if (name === "snap") { if (sbIsObj(c.v)) return c; fixed++; return null; }
+    if (name === "prep") { if (sbNum(c.v) !== null) return c; fixed++; return null; }
+    if (name === "on5L" || name === "on5D" || name === "lo") {
+      if (typeof c.v === "boolean") return c;
+      c.v = !!c.v; fixed++; return c;
+    }
+    if (typeof c.v === "boolean" || typeof c.v === "number") return c;
+    if (typeof c.v === "string" && c.v.length <= 500) return c;
+    fixed++; return null;
+  }
+  var out = { settings: { f: {} }, favorites: { items: {} }, days: {}, grocery: { f: {} }, plans: {} };
+  if (sbIsObj(parsed.settings)) out.settings = { f: cleanFields(parsed.settings.f, cleanSetting) };
+  if (sbIsObj(parsed.days)) {
+    Object.keys(parsed.days).forEach(function (d) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || !sbIsObj(parsed.days[d])) { fixed++; return; }
+      var doc = { f: cleanFields(parsed.days[d].f, cleanDayField) };
+      if (sbIsObj(parsed.days[d].foods)) {
+        doc.foods = {};
+        Object.keys(parsed.days[d].foods).forEach(function (id) {
+          if (sbIsObj(parsed.days[d].foods[id])) doc.foods[id] = parsed.days[d].foods[id]; else fixed++;
+        });
+      }
+      out.days[d] = doc;
+    });
+  }
+  if (sbIsObj(parsed.plans)) {
+    Object.keys(parsed.plans).forEach(function (w) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(w) || !sbIsObj(parsed.plans[w])) { fixed++; return; }
+      var doc2 = { f: cleanFields(parsed.plans[w].f, cleanPlanCell) };
+      var cl2 = sbNum(parsed.plans[w].cleared);
+      if (cl2 !== null) doc2.cleared = cl2;
+      out.plans[w] = doc2;
+    });
+  }
+  if (sbIsObj(parsed.grocery)) {
+    out.grocery = { f: cleanFields(parsed.grocery.f, function (name, c) {
+      if (!/^[a-z0-9-]{1,40}$/.test(name)) { fixed++; return null; }
+      if (typeof c.v === "boolean") return c;
+      c.v = !!c.v; fixed++; return c;
+    }) };
+  }
+  if (sbIsObj(parsed.favorites) && sbIsObj(parsed.favorites.items)) {
+    Object.keys(parsed.favorites.items).forEach(function (id) {
+      var it = parsed.favorites.items[id];
+      if (!sbIsObj(it) || typeof it.name !== "string") { fixed++; return; }
+      out.favorites.items[id] = {
+        name: it.name.slice(0, 200),
+        kcal: sbNum(it.kcal) !== null && it.kcal >= 0 ? it.kcal : null,
+        protein: sbNum(it.protein) !== null && it.protein >= 0 ? it.protein : null,
+        meal: typeof it.meal === "string" ? it.meal.slice(0, 40) : null,
+        del: !!it.del,
+        ts: sbNum(it.ts) || 0
+      };
+    });
+  }
+  return { state: out, fixed: fixed };
+}
+function lastBackupInfo() {
+  var ts = lsGet("steady.lastBackup", null);
+  if (!ts || typeof ts !== "number" || !isFinite(ts)) return { text: "No backup yet — download one so your data survives a phone switch.", warn: true };
+  var days = Math.round((parseLocal(todayStr) - parseLocal(fmtDate(new Date(ts)))) / 86400000);
+  if (days <= 0) return { text: "Last backup: today", warn: false };
+  if (days === 1) return { text: "Last backup: yesterday", warn: false };
+  return { text: "Last backup: " + days + " days ago", warn: days > 7 };
+}
+
 /* ---------------- backup / restore ---------------- */
 document.getElementById("backupBtn").addEventListener("click", function () {
+  lsSet("steady.lastBackup", Date.now());
+  var lbEl = document.getElementById("lastBackupLine");
+  if (lbEl) { var lb = lastBackupInfo(); lbEl.textContent = lb.text; lbEl.className = "small " + (lb.warn ? "warn" : "muted"); }
   var blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
   var url = URL.createObjectURL(blob);
   var a = document.createElement("a");
@@ -1105,19 +1535,15 @@ document.getElementById("restoreInput").addEventListener("change", function (ev)
   reader.onload = function () {
     var parsed = null;
     try { parsed = JSON.parse(String(reader.result)); } catch (e) { parsed = null; }
-    if (!parsed || typeof parsed !== "object" || !("days" in parsed || "plans" in parsed || "settings" in parsed)) {
+    if (!sbIsObj(parsed) || !(sbIsObj(parsed.days) || sbIsObj(parsed.plans) || sbIsObj(parsed.settings))) {
       window.alert("That file doesn't look like a Steady backup.");
       return;
     }
     if (!window.confirm("Restore this backup? It replaces everything Steady has saved on this phone.")) return;
-    state = {
-      settings: parsed.settings && parsed.settings.f ? parsed.settings : { f: {} },
-      favorites: parsed.favorites && parsed.favorites.items ? parsed.favorites : { items: {} },
-      days: parsed.days && typeof parsed.days === "object" ? parsed.days : {},
-      grocery: parsed.grocery && parsed.grocery.f ? parsed.grocery : { f: {} },
-      plans: parsed.plans && typeof parsed.plans === "object" ? parsed.plans : {}
-    };
+    var cleaned = sanitizeBackup(parsed);
+    state = cleaned.state;
     saveLocal();
+    window.alert(cleaned.fixed > 0 ? "Backup restored — " + cleaned.fixed + " bad values were ignored." : "Backup restored.");
     var dlg = document.getElementById("settingsDlg");
     if (dlg && dlg.open) dlg.close();
     setStatus("Saved on this phone");
@@ -1128,14 +1554,16 @@ document.getElementById("restoreInput").addEventListener("change", function (ev)
 
 /* ---------------- lifecycle ---------------- */
 document.addEventListener("visibilitychange", function () {
-  if (document.visibilityState !== "visible") return;
+  if (document.visibilityState !== "visible") { flushSteps(); return; }
   var nt = todayStrFn();
   if (nt !== todayStr) { if (selDate === todayStr) selDate = nt; todayStr = nt; }
   render();
 });
 
 /* ---------------- boot ---------------- */
+window.addEventListener("pagehide", flushSteps);
 document.querySelectorAll("#bottomNav button").forEach(function (b) { b.setAttribute("data-act", "tab"); });
+try { history.replaceState(histSnapshot(), ""); } catch (e) {}
 try { localStorage.removeItem("steady.queue"); } catch (e) {}
 if ("serviceWorker" in navigator) { try { navigator.serviceWorker.register("sw.js").catch(function () {}); } catch (e) {} }
 render(true);

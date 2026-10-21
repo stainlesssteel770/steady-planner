@@ -47,6 +47,7 @@
     <div class="fld">
       <div class="fld-label">Backup</div>
       <p class="muted small">Everything is saved only in this browser, on this phone. Download a backup now and then — it is the file you restore from if you switch phones.</p>
+      <p class="small" id="lastBackupLine"></p>
       <div class="rest-ctl">
         <button type="button" class="btn" id="backupBtn">Download backup</button>
         <button type="button" class="btn" id="restoreBtn">Restore from backup</button>
@@ -58,6 +59,16 @@
       <button id="setSave" value="default" class="btn primary">Save</button>
     </div>
   </form>
+</dialog>
+
+<dialog id="mealPickerDlg">
+  <div class="dlg-inner">
+    <h2 id="mpTitle">Pick a meal</h2>
+    <div class="mp-list" id="mpList"></div>
+    <div class="dlg-actions">
+      <button type="button" class="btn" id="mpClose">Close</button>
+    </div>
+  </div>
 </dialog>
 
 <script src="content.js" defer></script>
