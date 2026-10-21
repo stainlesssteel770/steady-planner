@@ -39,6 +39,7 @@
     <label class="fld">Workouts per week
       <input id="setWorkoutTarget" type="number" min="1" max="7" step="1" inputmode="numeric">
     </label>
+    <p class="inline-err" id="setError" role="alert" hidden></p>
     <div class="fld">
       <div class="fld-label" id="setRestLabel">Rest day</div>
       <div class="rest-ctl" id="setRestCtl"></div>
@@ -54,7 +55,6 @@
         <input type="file" id="restoreInput" accept="application/json,.json" hidden>
       </div>
     </div>
-    <p class="inline-err" id="setError" role="alert" hidden></p>
     <div class="dlg-actions">
       <button value="cancel" class="btn">Close</button>
       <button id="setSave" value="default" class="btn primary">Save</button>

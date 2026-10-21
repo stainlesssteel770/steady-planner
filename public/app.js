@@ -1613,14 +1613,17 @@ document.getElementById("mealPickerDlg").addEventListener("close", function () {
 document.getElementById("settingsDlg").addEventListener("close", function () { onDialogClosed("settings"); });
 document.getElementById("setSave").addEventListener("click", function (ev) {
   var errEl = document.getElementById("setError");
-  function setErr(msg) { if (errEl) { errEl.textContent = msg; errEl.hidden = !msg; if (msg) errEl.scrollIntoView({ block: "nearest" }); } }
+  function setErr(msg, fieldId) {
+    if (errEl) { errEl.textContent = msg; errEl.hidden = !msg; if (msg) errEl.scrollIntoView({ block: "nearest" }); }
+    if (msg && fieldId) { var fEl = document.getElementById(fieldId); if (fEl) fEl.focus(); }
+  }
   var sgRaw = document.getElementById("setStepGoal").value.trim();
   var wtRaw = document.getElementById("setWorkoutTarget").value.trim();
   var errs = [];
-  var sg = null, wt = null;
-  if (sgRaw !== "") { sg = Number(sgRaw); if (!(sg >= 1000 && sg <= 40000)) errs.push("Step goal must be between 1,000 and 40,000."); }
-  if (wtRaw !== "") { wt = Number(wtRaw); if (!Number.isInteger(wt)) errs.push("Workouts per week must be a whole number."); else if (!(wt >= 1 && wt <= 7)) errs.push("Workouts per week must be between 1 and 7."); }
-  if (errs.length) { setErr(errs.join(" ")); if (ev) ev.preventDefault(); return; }
+  var sg = null, wt = null, badField = null;
+  if (sgRaw !== "") { sg = Number(sgRaw); if (!(sg >= 1000 && sg <= 40000)) { errs.push("Step goal must be between 1,000 and 40,000."); badField = "setStepGoal"; } }
+  if (wtRaw !== "") { wt = Number(wtRaw); if (!Number.isInteger(wt)) { errs.push("Workouts per week must be a whole number."); if (!badField) badField = "setWorkoutTarget"; } else if (!(wt >= 1 && wt <= 7)) { errs.push("Workouts per week must be between 1 and 7."); if (!badField) badField = "setWorkoutTarget"; } }
+  if (errs.length) { setErr(errs.join(" "), badField); if (ev) ev.preventDefault(); return; }
   setErr("");
   if (sg !== null && sg !== getSetting("stepGoal")) opSettings("stepGoal", sg);
   if (wt !== null && wt !== getSetting("workoutTarget")) opSettings("workoutTarget", Math.round(wt));
