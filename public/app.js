@@ -629,7 +629,7 @@ function renderMeals() {
     }
     h += '</div>';
   });
-  h += '<p class="legend">Tags: <b>M</b> Meat · <b>D</b> Dairy · <b>P</b> Pareve · <b>F</b> Fish (pareve, never eaten with meat) · <b>?</b> Check the label for its hechsher and status.</p></section>';
+  h += '<p class="legend">Tags: <b>M</b> Meat · <b>D</b> Dairy · <b>P</b> Pareve · <b>F</b> Fish (pareve, never in the same meal as meat) · <b>?</b> Check the label for its hechsher and status.</p></section>';
 
   h += '<section class="card" id="sec-kosher"><h2>Keeping it kosher</h2><ul>' +
     STEADY.kashrusNotes.map(function (n) { return '<li>' + esc(n) + '</li>'; }).join("") + '</ul></section>';
@@ -1207,8 +1207,9 @@ function prepShareText(week) {
 
 /* ---------------- meal picker ---------------- */
 var mpKey = null;
-/* The planner's rule: only a Meat lunch before a Dairy dinner, and Fish with
-   Meat on the same day, are blocked. Dairy lunch + Meat dinner is fine. */
+/* The planner's rule: only meat/dairy is a day-level block (meat never
+   before dairy, in either slot). Fish with Meat on the same day is fine —
+   never in the same meal. Dairy lunch + Meat dinner is fine. */
 function pickerBlocked(tag, slot, otherTag) {
   if (!tag || !otherTag) return false;
   /* Only meat/dairy is a day-level block: meat never before dairy in a
