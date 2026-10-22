@@ -139,6 +139,12 @@ main {
 .dot.mid { background: var(--mid); border-color: var(--mid); color: #fff; }
 .dot.low { background: var(--low); border-color: var(--low); color: #fff; }
 .dot.restd { color: var(--rest); border-color: var(--rest); }
+/* Beta batch 2 item 5: 7 fixed 44px dots = 308px minimum, wider than a
+   320px phone's card — the row forced the page to 341px and the phone
+   zoomed out. Shrink the dots on narrow screens so the week fits. */
+@media (max-width: 380px) {
+  .dot { width: 36px; height: 36px; min-width: 36px; min-height: 36px; font-size: 0.85rem; }
+}
 .dot.future { opacity: 0.45; }
 .dotwrap { display: flex; flex-direction: column; align-items: center; gap: 3px; }
 .stats-line { color: var(--muted); font-size: 0.92rem; margin-top: 8px; }
