@@ -141,8 +141,11 @@ main {
 .dot.restd { color: var(--rest); border-color: var(--rest); }
 /* Beta batch 2 item 5: 7 fixed 44px dots = 308px minimum, wider than a
    320px phone's card — the row forced the page to 341px and the phone
-   zoomed out. Shrink the dots on narrow screens so the week fits. */
-@media (max-width: 380px) {
+   zoomed out. Shrink the dots on narrow screens so the week fits.
+   Beta batch 3 item 2: the breakpoint drops from 380px to 340px — at
+   360px the 44px dots fit fine (308px + gaps inside the card), so only
+   genuinely narrow phones shrink. */
+@media (max-width: 340px) {
   .dot { width: 36px; height: 36px; min-width: 36px; min-height: 36px; font-size: 0.85rem; }
 }
 .dot.future { opacity: 0.45; }
