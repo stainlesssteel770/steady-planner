@@ -216,7 +216,7 @@
     }
     function chooseMeal(slotLetter, proteinOrder, opts) {
       opts = opts || {};
-      var relaxLevels = [[false, false], [true, false], [true, true]];
+      var relaxLevels = opts.levels || [[false, false], [true, false], [true, true]];
       for (var lvl = 0; lvl < relaxLevels.length; lvl++) {
         for (var pi = 0; pi < proteinOrder.length; pi++) {
           var p = proteinOrder[pi];
@@ -282,19 +282,42 @@
       // offset the lunch rotation from the dinners
       if (order.length > 1) { var sh = (rotIdx + d) % order.length; order = order.slice(sh).concat(order.slice(0, sh)); }
       var dairyDinner = !!(tonightMeal && tonightMeal.t === "D");
-      var meal = chooseMeal("L", order, {
+      var lopts = {
         excludeTag: dairyDinner ? "M" : null,
         excludeTagHard: dairyDinner,
         preferNotFresh: true
-      });
-      if (!meal && dairyDinner) {
-        // Hard-excluding meat with the avoid-filtered order found nothing:
-        // widen to every selected protein before ever accepting a meat lunch.
-        meal = chooseMeal("L", rotation, {
-          excludeTag: "M",
-          excludeTagHard: true,
-          preferNotFresh: true
-        });
+      };
+      /* Beta batch 3 item 1: widen BEFORE repeating. The avoid-filtered
+         order can be thin (salmon has 2 lunches); when all its lunches are
+         used, the old code relaxed straight to a repeat without retrying
+         the dropped dinner proteins. Now: (a) avoid-filtered order,
+         strict (unused, cap-passing only); (b1) add back last night's
+         dinner protein; (b2) add back tonight's; (c) only then relax to
+         repeats across the full rotation. */
+      var strict = { levels: [[false, false]] };
+      var meal = chooseMeal("L", order, Object.assign({}, lopts, strict));
+      if (!meal && prevMeal && order.indexOf(prevMeal.p) < 0) {
+        meal = chooseMeal("L", order.concat([prevMeal.p]), Object.assign({}, lopts, strict));
+      }
+      if (!meal && tonightMeal && order.indexOf(tonightMeal.p) < 0 &&
+          (!prevMeal || tonightMeal.p !== prevMeal.p)) {
+        var wider = order.slice();
+        if (prevMeal && wider.indexOf(prevMeal.p) < 0) wider.push(prevMeal.p);
+        wider.push(tonightMeal.p);
+        meal = chooseMeal("L", wider, Object.assign({}, lopts, strict));
+      }
+      if (!meal) {
+        // No unused rule-passing lunch anywhere: relax to repeats across
+        // every selected protein. The hard meat/dairy day rule holds here
+        // too — UNLESS nothing at all passes it (e.g. tonight's dinner was
+        // locked dairy while the dairy protein is no longer selected), in
+        // which case fall back to the old soft behavior (a meat repeat)
+        // rather than leaving the lunch cell empty. A repeat in that
+        // pathological case is allowed per the batch-3 approval.
+        meal = chooseMeal("L", rotation, lopts);
+        if (!meal && dairyDinner) {
+          meal = chooseMeal("L", rotation, Object.assign({}, lopts, { excludeTagHard: false }));
+        }
       }
       if (meal) { out[s.key] = { id: meal.id }; used[meal.id] = true; if (meal.min >= 90) longCount++; }
     });
