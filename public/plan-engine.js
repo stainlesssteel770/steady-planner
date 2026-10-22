@@ -188,7 +188,15 @@
          through untouched — never re-rolled, never refilled — so a
          leftovers lunch can only ever point at a dinner that was really
          in the saved plan, and prep/shopping stay about shown days. */
-      if (s.past) return;
+      if (s.past) {
+        /* Beta batch 2 item 6: past meals still count for variety — a
+           meal eaten Sun–Tue is "used" (and a long one spends the weekly
+           long-meal cap), so mid-week picks avoid repeating it. Only the
+           counting happens here; the cells pass through as before. */
+        var rp = resolve(ctx, cells, s.key);
+        if (rp && rp.meal) { used[rp.meal.id] = true; if (rp.meal.min >= 90) longCount++; }
+        return;
+      }
       var raw = v[s.key];
       if (raw && raw.k) {
         var r = resolve(ctx, cells, s.key);
@@ -248,7 +256,15 @@
     // Lunches next.
     var leftoverPlaced = false;
     sl.filter(function (s) { return s.slot === "L"; }).forEach(function (s) {
-      if (s.past) return; // history (item 3)
+      if (s.past) {
+        /* Beta batch 2 item 6: past meals still count for variety — a
+           meal eaten Sun–Tue is "used" (and a long one spends the weekly
+           long-meal cap), so mid-week picks avoid repeating it. Only the
+           counting happens here; the cells pass through as before. */
+        var rp = resolve(ctx, cells, s.key);
+        if (rp && rp.meal) { used[rp.meal.id] = true; if (rp.meal.min >= 90) longCount++; }
+        return;
+      } // history (item 3)
       if (out[s.key]) { var lr = resolve(ctx, out, s.key); if (lr && lr.lo) leftoverPlaced = true; return; }
       var d = s.dow;
       var tonight = out["m" + d + "D"], tonightMeal = tonight && tonight.id ? MEALS[tonight.id] : null;
