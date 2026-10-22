@@ -163,12 +163,27 @@
   }
   function pickFrom(list, rand) { return list[Math.floor(rand() * list.length)]; }
 
-  function candidates(P, slotLetter, used, longCount, relaxUsed, relaxLong) {
+  /* Batch 4 item 5: "long" means long HANDS-ON prep (Mark's definition,
+     replacing the spec's total-time rule): the sum of the meal's prep
+     components' hands-on minutes (COMP a). A pot that simmers for hours
+     after 15 minutes of prep is not long. The threshold is the plan's
+     longMin cell (default 30); the weekly cap stays 2. */
+  function handsOn(meal) {
+    var t = 0, prep = meal.prep || [];
+    for (var i = 0; i < prep.length; i++) { var c = COMP[prep[i]]; if (c && c.a) t += c.a; }
+    return t;
+  }
+  function longMinOf(cells) {
+    var n = cellVals(cells).longMin;
+    return (typeof n === "number" && isFinite(n)) ? Math.max(5, Math.min(120, Math.round(n))) : 30;
+  }
+
+  function candidates(P, slotLetter, used, longCount, relaxUsed, relaxLong, longMin) {
     return Object.keys(MEALS).map(function (id) { return MEALS[id]; }).filter(function (meal) {
       if (P.indexOf(meal.p) < 0) return false;
       if (meal.s.indexOf(slotLetter) < 0) return false;
       if (!relaxUsed && used[meal.id]) return false;
-      if (!relaxLong && longCount >= 2 && meal.min >= 90) return false;
+      if (!relaxLong && longCount >= 2 && handsOn(meal) >= (longMin == null ? 30 : longMin)) return false;
       return true;
     });
   }
@@ -182,6 +197,7 @@
     if (!P.length) return out;
     var rotation = shuffleArr(P.slice(), rand);
     var used = {}, longCount = 0, rotIdx = 0;
+    var longMinG = longMinOf(cells);
     // Locked slots are kept; their meals count as used.
     sl.forEach(function (s) {
       /* Beta batch 1 item 3: past days are history. Their cells pass
@@ -194,13 +210,13 @@
            long-meal cap), so mid-week picks avoid repeating it. Only the
            counting happens here; the cells pass through as before. */
         var rp = resolve(ctx, cells, s.key);
-        if (rp && rp.meal) { used[rp.meal.id] = true; if (rp.meal.min >= 90) longCount++; }
+        if (rp && rp.meal) { used[rp.meal.id] = true; if (!rp.lo && handsOn(rp.meal) >= longMinG) longCount++; }
         return;
       }
       var raw = v[s.key];
       if (raw && raw.k) {
         var r = resolve(ctx, cells, s.key);
-        if (r && r.meal) { used[r.meal.id] = true; if (r.meal.min >= 90) longCount++; }
+        if (r && r.meal) { used[r.meal.id] = true; if (!r.lo && handsOn(r.meal) >= longMinG) longCount++; }
       } else { delete out[s.key]; }
     });
     function prevDinnerProtein(dow) {
@@ -220,7 +236,7 @@
       for (var lvl = 0; lvl < relaxLevels.length; lvl++) {
         for (var pi = 0; pi < proteinOrder.length; pi++) {
           var p = proteinOrder[pi];
-          var list = candidates([p], slotLetter, used, longCount, relaxLevels[lvl][0], relaxLevels[lvl][1]);
+          var list = candidates([p], slotLetter, used, longCount, relaxLevels[lvl][0], relaxLevels[lvl][1], longMinG);
           if (opts.excludeTag) {
             var nonTag = list.filter(function (mm) { return mm.t !== opts.excludeTag; });
             if (opts.excludeTagHard || nonTag.length) list = nonTag;
@@ -249,7 +265,7 @@
       if (meal) {
         out[s.key] = { id: meal.id };
         used[meal.id] = true;
-        if (meal.min >= 90) longCount++;
+        if (handsOn(meal) >= longMinG) longCount++;
         rotIdx = (rotation.indexOf(meal.p) + 1) % rotation.length;
       }
     });
@@ -266,7 +282,10 @@
            long-meal cap), so mid-week picks avoid repeating it. Only the
            counting happens here; the cells pass through as before. */
         var rp = resolve(ctx, cells, s.key);
-        if (rp && rp.meal) { used[rp.meal.id] = true; if (rp.meal.min >= 90) longCount++; }
+        /* Item 5: used-marking only — the seed pass owns long counting
+           (a past lunch counted here too was the double-spend), and a
+           leftover lunch never spends the budget at all. */
+        if (rp && rp.meal) { used[rp.meal.id] = true; }
         return;
       } // history (item 3)
       if (out[s.key]) { var lr = resolve(ctx, out, s.key); if (lr && lr.lo) leftoverPlaced = true; return; }
@@ -326,7 +345,7 @@
         // existed that passes the hard rules (the batch-3 definition).
         meal = chooseMeal("L", rotation, lopts);
       }
-      if (meal) { out[s.key] = { id: meal.id }; used[meal.id] = true; if (meal.min >= 90) longCount++; }
+      if (meal) { out[s.key] = { id: meal.id }; used[meal.id] = true; if (handsOn(meal) >= longMinG) longCount++; }
     });
     if (!out.bk) out.bk = PD.BREAKFAST_DEFAULT.slice();
     return out;
@@ -336,7 +355,7 @@
     var tonight = out["m" + dow + "D"], tonightMeal = tonight && tonight.id ? MEALS[tonight.id] : null;
     var levels = [[false, false], [true, false], [true, true]];
     for (var lvl = 0; lvl < levels.length; lvl++) {
-      var list = candidates(P, "L", used, 99, levels[lvl][0], levels[lvl][1]);
+      var list = candidates(P, "L", used, 99, levels[lvl][0], levels[lvl][1], longMinOf(out));
       if (tonightMeal && cellVals(out).mdGap !== true) {
         var nonB = list.filter(function (mm) { return !pickerBlocked(mm.t, "L", tonightMeal.t); });
         if (nonB.length) list = nonB;
@@ -363,7 +382,7 @@
       var r = resolve(ctx, cells, s.key);
       if (r && r.meal) used[r.meal.id] = true;
     });
-    var all = candidates(P, slotLetter, {}, 99, true, true).filter(function (mm) { return !cur || !cur.meal || mm.id !== cur.meal.id; });
+    var all = candidates(P, slotLetter, {}, 99, true, true, longMinOf(cells)).filter(function (mm) { return !cur || !cur.meal || mm.id !== cur.meal.id; });
     /* Batch 4 item 1: HARD same-day meat/dairy filters — a candidate the
        picker would hide is never served by the dice, in either slot. If a
        filter empties the pool, the current meal stays and the caller is
@@ -651,6 +670,7 @@
     cooked: cooked, breakfastDays: breakfastDays, breakfastPair: breakfastPair,
     shopping: shopping, prep: prep, qtyText: qtyText, frac: frac, dur: dur, clock: clock,
     proteinsOf: proteinsOf, servingsOf: servingsOf, addDays: addDays, dowOf: dowOf, cellVals: cellVals,
+    handsOn: handsOn, longMinOf: longMinOf,
     DAYN: DAYN, DAY3: DAY3
   };
 })(typeof window !== "undefined" ? window : globalThis);

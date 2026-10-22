@@ -716,13 +716,19 @@ function renderPlan() {
 function cookingForHTML(cells) {
   // Cooking for: people per meal (srvB/srvL/srvD cells) — scales shopping + prep.
   var srv = ENGINE.servingsOf(cells);
+  var lm = ENGINE.longMinOf(cells);
   var srvRows = [["srvB", "Breakfast", srv.B], ["srvL", "Lunch", srv.L], ["srvD", "Dinner", srv.D]];
   return '<section class="card"><h3 style="margin-top:0">Cooking for</h3>' + srvRows.map(function (r) {
     return '<div class="row spread srv-row"><span class="srv-label"><b>' + r[1] + '</b></span><span class="stepper">' +
       '<button data-act="srv" data-k="' + r[0] + '" data-d="-1"' + (r[2] <= 1 ? " disabled" : "") + ' aria-label="Fewer people at ' + r[1].toLowerCase() + '">−</button>' +
       '<b class="srv-val">' + r[2] + (r[2] === 1 ? " person" : " people") + '</b>' +
       '<button data-act="srv" data-k="' + r[0] + '" data-d="1"' + (r[2] >= 20 ? " disabled" : "") + ' aria-label="More people at ' + r[1].toLowerCase() + '">+</button></span></div>';
-  }).join("") + '<p class="muted small" style="margin-bottom:0">The shopping list and prep amounts scale to this. Your weekly staples and snacks stay sized for one.</p></section>';
+  }).join("") +
+    '<div class="row spread srv-row"><span class="srv-label"><b>Long meal</b></span><span class="stepper">' +
+    '<button data-act="longmin" data-d="-5"' + (lm <= 10 ? " disabled" : "") + ' aria-label="Lower the long-meal prep threshold">−</button>' +
+    '<b class="srv-val">prep ≥ ' + lm + ' min</b>' +
+    '<button data-act="longmin" data-d="5"' + (lm >= 90 ? " disabled" : "") + ' aria-label="Raise the long-meal prep threshold">+</button></span></div>' +
+    '<p class="muted small" style="margin-bottom:0">The shopping list and prep amounts scale to this. Your weekly staples and snacks stay sized for one. A long meal (limit 2 a week) is one with at least this much hands-on prep — simmering time does not count, and leftovers never count.</p></section>';
 }
 function planProHTML(week, cells, ctx, pros) {
   var h = cookingForHTML(cells);
@@ -1508,6 +1514,13 @@ document.addEventListener("click", function (ev) {
     if (nextS !== curS) opPlan(weekS, kS, nextS);
     return;
   }
+  if (act === "longmin") {
+    var weekL = currentPlanWeek(), cellsL = planCells(weekL);
+    var curL = ENGINE.longMinOf(cellsL);
+    var nextL = Math.max(10, Math.min(90, curL + (+el.getAttribute("data-d"))));
+    if (nextL !== curL) opPlan(weekL, "longMin", nextL);
+    return;
+  }
   if (act === "build") { buildWeek(currentPlanWeek()); return; }
   if (act === "shuffle-all") {
     var week3 = currentPlanWeek(), ctx3 = planCtx(week3);
@@ -1910,6 +1923,7 @@ function sanitizeBackup(parsed) {
     }
     if (name === "snap") { if (sbIsObj(c.v)) return c; fixed++; return null; }
     if (name === "prep") { if (sbNum(c.v) !== null) return c; fixed++; return null; }
+    if (name === "longMin") { var nL = sbNum(c.v); if (nL === null) { fixed++; return null; } c.v = Math.max(10, Math.min(90, Math.round(nL))); return c; }
     if (name === "on5L" || name === "on5D" || name === "lo" || name === "mdGap") {
       if (typeof c.v === "boolean") return c;
       c.v = !!c.v; fixed++; return c;
