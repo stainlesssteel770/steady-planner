@@ -148,6 +148,19 @@ main {
 @media (max-width: 340px) {
   .dot { width: 36px; height: 36px; min-width: 36px; min-height: 36px; font-size: 0.85rem; }
 }
+/* Beta batch 4 item 2: between 341 and 373px the card's content box is
+   narrower than 7 rigid 44px dots (308px), so the row overflowed to the
+   right — dots touched and sat off-centre at 360, and the last dot
+   crossed the card border at 341-350. Bleed the row 7px into the card
+   padding on each side; below 356px the row is narrower than the dots
+   even bled, so centre it and let the overflow spill symmetrically.
+   The 340px shrink breakpoint does not move. */
+@media (max-width: 373px) {
+  .weekdots { margin-left: -7px; margin-right: -7px; }
+}
+@media (min-width: 341px) and (max-width: 356px) {
+  .weekdots { justify-content: center; }
+}
 .dot.future { opacity: 0.45; }
 .dotwrap { display: flex; flex-direction: column; align-items: center; gap: 3px; }
 .stats-line { color: var(--muted); font-size: 0.92rem; margin-top: 8px; }
