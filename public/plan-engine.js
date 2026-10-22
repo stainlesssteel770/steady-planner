@@ -296,28 +296,31 @@
          repeats across the full rotation. */
       var strict = { levels: [[false, false]] };
       var meal = chooseMeal("L", order, Object.assign({}, lopts, strict));
-      if (!meal && prevMeal && order.indexOf(prevMeal.p) < 0) {
+      /* Beta batch 4 item 1: the widen steps only ever add proteins that are
+         chosen (members of `rotation`). A locked dinner from a deselected
+         protein (e.g. yogurt dinners locked, then yogurt deselected) must
+         not pull that protein's lunches back into the rotation. */
+      if (!meal && prevMeal && order.indexOf(prevMeal.p) < 0 &&
+          rotation.indexOf(prevMeal.p) >= 0) {
         meal = chooseMeal("L", order.concat([prevMeal.p]), Object.assign({}, lopts, strict));
       }
       if (!meal && tonightMeal && order.indexOf(tonightMeal.p) < 0 &&
+          rotation.indexOf(tonightMeal.p) >= 0 &&
           (!prevMeal || tonightMeal.p !== prevMeal.p)) {
         var wider = order.slice();
-        if (prevMeal && wider.indexOf(prevMeal.p) < 0) wider.push(prevMeal.p);
+        if (prevMeal && wider.indexOf(prevMeal.p) < 0 &&
+            rotation.indexOf(prevMeal.p) >= 0) wider.push(prevMeal.p);
         wider.push(tonightMeal.p);
         meal = chooseMeal("L", wider, Object.assign({}, lopts, strict));
       }
       if (!meal) {
         // No unused rule-passing lunch anywhere: relax to repeats across
-        // every selected protein. The hard meat/dairy day rule holds here
-        // too — UNLESS nothing at all passes it (e.g. tonight's dinner was
-        // locked dairy while the dairy protein is no longer selected), in
-        // which case fall back to the old soft behavior (a meat repeat)
-        // rather than leaving the lunch cell empty. A repeat in that
-        // pathological case is allowed per the batch-3 approval.
+        // every chosen protein. The hard meat/dairy day rule always holds —
+        // if nothing passes it (e.g. tonight's dinner was locked dairy while
+        // the dairy protein is no longer selected), the lunch cell stays
+        // empty, as on v20. A repeat is allowed only where an unused lunch
+        // existed that passes the hard rules (the batch-3 definition).
         meal = chooseMeal("L", rotation, lopts);
-        if (!meal && dairyDinner) {
-          meal = chooseMeal("L", rotation, Object.assign({}, lopts, { excludeTagHard: false }));
-        }
       }
       if (meal) { out[s.key] = { id: meal.id }; used[meal.id] = true; if (meal.min >= 90) longCount++; }
     });
