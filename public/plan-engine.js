@@ -255,6 +255,10 @@
     });
     // Lunches next.
     var leftoverPlaced = false;
+    /* Batch 4 item 4: the mdGap plan toggle ("meat lunch OK before a dairy
+       dinner — dinner is 6+ hours later") lifts the meat-before-dairy day
+       rule everywhere in the generator. Off (default) = v21 behavior. */
+    var mdGapOn = v.mdGap === true;
     sl.filter(function (s) { return s.slot === "L"; }).forEach(function (s) {
       if (s.past) {
         /* Beta batch 2 item 6: past meals still count for variety — a
@@ -271,7 +275,7 @@
       var prevD = d > 0 ? out["m" + (d - 1) + "D"] : null;
       var prevMeal = prevD && prevD.id ? MEALS[prevD.id] : null;
       var wantLo = v.lo !== false && d >= 1 && prevD && !prevD.lo && prevMeal && prevMeal.lo &&
-        !(tonightMeal && tonightMeal.t === "D" && prevMeal.t === "M") &&
+        !(tonightMeal && tonightMeal.t === "D" && prevMeal.t === "M" && !mdGapOn) &&
         (d % 2 === 1 || (!leftoverPlaced && d >= 2));
       if (wantLo) { out[s.key] = { lo: 1 }; leftoverPlaced = true; return; }
       var avoid = {};
@@ -281,7 +285,7 @@
       if (!order.length) order = rotation.slice();
       // offset the lunch rotation from the dinners
       if (order.length > 1) { var sh = (rotIdx + d) % order.length; order = order.slice(sh).concat(order.slice(0, sh)); }
-      var dairyDinner = !!(tonightMeal && tonightMeal.t === "D");
+      var dairyDinner = !!(tonightMeal && tonightMeal.t === "D") && !mdGapOn;
       var lopts = {
         excludeTag: dairyDinner ? "M" : null,
         excludeTagHard: dairyDinner,
@@ -333,7 +337,7 @@
     var levels = [[false, false], [true, false], [true, true]];
     for (var lvl = 0; lvl < levels.length; lvl++) {
       var list = candidates(P, "L", used, 99, levels[lvl][0], levels[lvl][1]);
-      if (tonightMeal) {
+      if (tonightMeal && cellVals(out).mdGap !== true) {
         var nonB = list.filter(function (mm) { return !pickerBlocked(mm.t, "L", tonightMeal.t); });
         if (nonB.length) list = nonB;
       }
@@ -365,7 +369,8 @@
        filter empties the pool, the current meal stays and the caller is
        told via out.__noFit (not a cell key; never persisted). */
     var noFit = false;
-    if (slotLetter === "L") {
+    var mdGapS = v.mdGap === true;
+    if (slotLetter === "L" && !mdGapS) {
       var dnR = resolve(ctx, cells, "m" + key.charAt(1) + "D");
       var dnTag = dnR && dnR.meal ? dnR.meal.t : null;
       if (dnTag) {
@@ -374,7 +379,7 @@
         all = okL;
       }
     }
-    if (slotLetter === "D") {
+    if (slotLetter === "D" && !mdGapS) {
       var luR = resolve(ctx, cells, "m" + key.charAt(1) + "L");
       var luTag = luR && luR.meal ? luR.meal.t : null;
       if (luTag) {
@@ -410,7 +415,7 @@
       if (lv && lv.lo && !lv.k) {
         var tdR = resolve(ctx, out, "m" + (dow + 1) + "D");
         var tdTag = tdR && tdR.meal ? tdR.meal.t : null;
-        if (!meal.lo || pickerBlocked(meal.t, "L", tdTag)) repick(lk, dow + 1);
+        if (!meal.lo || (!mdGapS && pickerBlocked(meal.t, "L", tdTag))) repick(lk, dow + 1);
       }
       // Today's lunch is yesterday's leftovers (its source dinner is
       // untouched) but it is eaten before this dinner: re-pick when the
@@ -418,7 +423,7 @@
       var sk = "m" + dow + "L", sv = out[sk];
       if (sv && sv.lo && !sv.k) {
         var slR = resolve(ctx, out, sk);
-        if (slR && slR.meal && pickerBlocked(slR.meal.t, "L", meal.t)) repick(sk, dow);
+        if (slR && slR.meal && !mdGapS && pickerBlocked(slR.meal.t, "L", meal.t)) repick(sk, dow);
       }
     }
     return out;

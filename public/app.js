@@ -742,10 +742,11 @@ function planProHTML(week, cells, ctx, pros) {
   var toggles = [
     ["on5L", "Friday lunch", cells.on5L !== false],
     ["on5D", "Friday night dinner", cells.on5D === true],
-    ["lo", "Leftover lunches", cells.lo !== false]
+    ["lo", "Leftover lunches", cells.lo !== false],
+    ["mdGap", "Meat lunch OK before dairy dinner", cells.mdGap === true]
   ];
   toggles.forEach(function (t) {
-    h += '<div class="toggle-row"><div><b>' + t[1] + '</b>' + (t[0] === "on5D" ? '<div class="habit-sub">That\'s the Shabbos meal</div>' : t[0] === "lo" ? '<div class="habit-sub">Cook dinner ×2 and pack the second portion for the next day\'s lunch</div>' : "") + '</div>' +
+    h += '<div class="toggle-row"><div><b>' + t[1] + '</b>' + (t[0] === "on5D" ? '<div class="habit-sub">That\'s the Shabbos meal</div>' : t[0] === "lo" ? '<div class="habit-sub">Cook dinner ×2 and pack the second portion for the next day\'s lunch</div>' : t[0] === "mdGap" ? '<div class="habit-sub">For when dinner is 6+ hours after the meat lunch, per your custom</div>' : "") + '</div>' +
       '<button class="switch' + (t[2] ? " on" : "") + '" data-act="ptoggle" data-k="' + t[0] + '" role="switch" aria-checked="' + t[2] + '" aria-label="' + t[1] + '"></button></div>';
   });
   var skipNames = [];
@@ -812,7 +813,7 @@ function planWeekHTML(week, cells, ctx) {
     if (slotKeys["m" + d + "L"]) h += mealCardHTML(ctx, cells, "m" + d + "L");
     if (slotKeys["m" + d + "D"]) h += mealCardHTML(ctx, cells, "m" + d + "D");
     var rl = ENGINE.resolve(ctx, cells, "m" + d + "L"), rd = ENGINE.resolve(ctx, cells, "m" + d + "D");
-    if (rl && rl.meal && rd && rd.meal && rl.meal.t === "M" && rd.meal.t === "D") {
+    if (rl && rl.meal && rd && rd.meal && rl.meal.t === "M" && rd.meal.t === "D" && cells.mdGap !== true) {
       h += '<p class="warn">Meat lunch, dairy dinner: about 7 hours apart. Fine if that fits your waiting time; otherwise shuffle one.</p>';
     }
     if (d === 5 && !slotKeys["m5D"]) h += '<p class="muted">Friday night is Shabbos.</p>';
@@ -1235,6 +1236,7 @@ function openMealPicker(key) {
   mpKey = key;
   var dow = +m[1], slot = m[2];
   var pros = ENGINE.proteinsOf(cells);
+  var mdGapP = cells.mdGap === true;
   var other = ENGINE.resolve(ctx, cells, "m" + dow + (slot === "L" ? "D" : "L"));
   var otherTag = other && other.meal ? other.meal.t : null;
   document.getElementById("mpTitle").textContent = ENGINE.DAYN[dow] + " " + (slot === "L" ? "lunch" : "dinner") + " — pick a meal";
@@ -1244,14 +1246,14 @@ function openMealPicker(key) {
   if (slot === "L" && dow > 0) {
     var prevD = ENGINE.resolve(ctx, cells, "m" + (dow - 1) + "D");
     if (prevD && prevD.meal && prevD.meal.lo) {
-      if (pickerBlocked(prevD.meal.t, "L", otherTag)) noteBlocked(prevD.meal.t);
+      if (!mdGapP && pickerBlocked(prevD.meal.t, "L", otherTag)) noteBlocked(prevD.meal.t);
       else loHTML = '<button class="mp-opt" data-act="mp-lo">' + tagPill(prevD.meal.t) + '<span>Leftovers: ' + esc(prevD.meal.n) + '</span><span class="mp-min">reheat</span></button>';
     }
   }
   var list = Object.keys(PD.MEALS).map(function (id) { return PD.MEALS[id]; }).filter(function (meal) {
     if (pros.indexOf(meal.p) < 0) return false;
     if (meal.s.indexOf(slot) < 0) return false;
-    if (pickerBlocked(meal.t, slot, otherTag)) { noteBlocked(meal.t); return false; }
+    if (!mdGapP && pickerBlocked(meal.t, slot, otherTag)) { noteBlocked(meal.t); return false; }
     return true;
   });
   list.sort(function (a, b) { return a.n < b.n ? -1 : a.n > b.n ? 1 : 0; });
@@ -1299,7 +1301,7 @@ function afterDinnerPick(week, dinnerKey) {
   var dn = ENGINE.resolve(ctx, cells, dinnerKey);
   if (dn && dn.meal && dn.meal.lo) {
     var td = ENGINE.resolve(ctx, cells, "m" + (d + 1) + "D");
-    if (!(td && td.meal && pickerBlocked(dn.meal.t, "L", td.meal.t))) return;
+    if (!(td && td.meal && cells.mdGap !== true && pickerBlocked(dn.meal.t, "L", td.meal.t))) return;
   }
   var replaced = false;
   if (ENGINE.proteinsOf(cells).length >= 2) {
@@ -1487,7 +1489,7 @@ document.addEventListener("click", function (ev) {
   }
   if (act === "ptoggle") {
     var week2 = currentPlanWeek(), cells2 = planCells(week2), k = el.getAttribute("data-k");
-    var cur = k === "on5D" ? cells2[k] === true : cells2[k] !== false;
+    var cur = (k === "on5D" || k === "mdGap") ? cells2[k] === true : cells2[k] !== false;
     opPlan(week2, k, !cur);
     return;
   }
@@ -1557,7 +1559,7 @@ document.addEventListener("click", function (ev) {
         var lvS = cellsAS["m" + (dowS + 1) + "L"], ndS = cellsAS[key], tdS = cellsAS["m" + (dowS + 1) + "D"];
         var ndMealS = ndS && ndS.id ? PD.MEALS[ndS.id] : null;
         var tdTagS = tdS && tdS.id ? PD.MEALS[tdS.id].t : null;
-        if (lvS && lvS.lo && lvS.k && ndMealS && (!ndMealS.lo || pickerBlocked(ndMealS.t, "L", tdTagS))) {
+        if (lvS && lvS.lo && lvS.k && ndMealS && (!ndMealS.lo || (cellsAS.mdGap !== true && pickerBlocked(ndMealS.t, "L", tdTagS)))) {
           msgS = msgS.slice(0, -1) + ". " + ENGINE.DAYN[dowS + 1] + "'s lunch is locked as leftovers — check it.";
         }
       }
@@ -1900,7 +1902,7 @@ function sanitizeBackup(parsed) {
     }
     if (name === "snap") { if (sbIsObj(c.v)) return c; fixed++; return null; }
     if (name === "prep") { if (sbNum(c.v) !== null) return c; fixed++; return null; }
-    if (name === "on5L" || name === "on5D" || name === "lo") {
+    if (name === "on5L" || name === "on5D" || name === "lo" || name === "mdGap") {
       if (typeof c.v === "boolean") return c;
       c.v = !!c.v; fixed++; return c;
     }
