@@ -229,7 +229,10 @@ summary::-webkit-details-marker { display: none; }
 @media (max-width: 480px) {
   .plan-head .week-toggle { flex: 1 1 100%; }
   .week-toggle button { flex: 1; white-space: nowrap; }
-  .stepper-bar { overflow-x: auto; scrollbar-width: none; -webkit-mask-image: linear-gradient(to right, #000 88%, transparent); mask-image: linear-gradient(to right, #000 88%, transparent); }
+  .stepper-bar { overflow-x: auto; scrollbar-width: none; }
+  /* Beta batch 2 item 4: the faded right edge shows ONLY while there is
+     more to scroll right (.more is toggled by fixStepFade in app.js). */
+  .stepper-bar.more { -webkit-mask-image: linear-gradient(to right, #000 88%, transparent); mask-image: linear-gradient(to right, #000 88%, transparent); }
   .stepper-bar::-webkit-scrollbar { display: none; }
   .step-btn { flex: 1 0 auto; white-space: nowrap; font-size: 0.85rem; }
 }

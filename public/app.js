@@ -246,7 +246,17 @@ function render(force) {
   if (TM.on) html = tmBannerHTML() + html; /* TESTMODE */
   mainEl().innerHTML = html;
   if (ui.tab === "plan") scheduleSnap();
+  fixStepFade(); /* Beta batch 2 item 4 */
 }
+/* The step bar's faded right edge is a scroll hint, not decoration: it is
+   shown only while there is more to scroll right (Beta batch 2 item 4). */
+function fixStepFade() {
+  var bar = document.querySelector(".stepper-bar");
+  if (!bar) return;
+  bar.classList.toggle("more", bar.scrollWidth - bar.clientWidth - bar.scrollLeft > 1);
+  bar.onscroll = fixStepFade;
+}
+window.addEventListener("resize", fixStepFade);
 function syncNav() {
   var btns = document.querySelectorAll("#bottomNav button");
   btns.forEach(function (b) { b.classList.toggle("on", b.getAttribute("data-tab") === ui.tab); });
