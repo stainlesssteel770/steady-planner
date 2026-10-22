@@ -1240,37 +1240,45 @@ function openMealPicker(key) {
   var other = ENGINE.resolve(ctx, cells, "m" + dow + (slot === "L" ? "D" : "L"));
   var otherTag = other && other.meal ? other.meal.t : null;
   document.getElementById("mpTitle").textContent = ENGINE.DAYN[dow] + " " + (slot === "L" ? "lunch" : "dinner") + " — pick a meal";
-  var hidMD = false;
-  function noteBlocked(tag) { hidMD = true; }
-  var loHTML = "";
+  /* Batch 4 item 3: meals the meat/dairy day rule blocks are no longer
+     hidden — they collect into a "Not usually allowed" section at the
+     bottom and stay tappable, so no slot is ever impossible to fill by
+     hand. Picking one saves it and the day shows the existing warning.
+     The generator and the dice never pick from that section. */
+  var loHTML = "", loBlockedHTML = "";
   if (slot === "L" && dow > 0) {
     var prevD = ENGINE.resolve(ctx, cells, "m" + (dow - 1) + "D");
     if (prevD && prevD.meal && prevD.meal.lo) {
-      if (!mdGapP && pickerBlocked(prevD.meal.t, "L", otherTag)) noteBlocked(prevD.meal.t);
-      else loHTML = '<button class="mp-opt" data-act="mp-lo">' + tagPill(prevD.meal.t) + '<span>Leftovers: ' + esc(prevD.meal.n) + '</span><span class="mp-min">reheat</span></button>';
+      var loBtn = function (cls) { return '<button class="mp-opt' + cls + '" data-act="mp-lo">' + tagPill(prevD.meal.t) + '<span>Leftovers: ' + esc(prevD.meal.n) + '</span><span class="mp-min">reheat</span></button>'; };
+      if (!mdGapP && pickerBlocked(prevD.meal.t, "L", otherTag)) loBlockedHTML = loBtn(" mp-opt-blocked");
+      else loHTML = loBtn("");
     }
   }
+  var blockedList = [];
   var list = Object.keys(PD.MEALS).map(function (id) { return PD.MEALS[id]; }).filter(function (meal) {
     if (pros.indexOf(meal.p) < 0) return false;
     if (meal.s.indexOf(slot) < 0) return false;
-    if (!mdGapP && pickerBlocked(meal.t, slot, otherTag)) { noteBlocked(meal.t); return false; }
+    if (!mdGapP && pickerBlocked(meal.t, slot, otherTag)) { blockedList.push(meal); return false; }
     return true;
   });
-  list.sort(function (a, b) { return a.n < b.n ? -1 : a.n > b.n ? 1 : 0; });
-  var html = "";
-  if (hidMD) {
-    var hints = [];
-    if (hidMD) hints.push(slot === "L" ? "Meat isn't shown: tonight is a dairy dinner." : "Dairy isn't shown: lunch today is meat.");
-    html += '<p class="muted small mp-hint">' + esc(hints.join(" ")) + '</p>';
-  }
-  html += loHTML;
-  list.forEach(function (meal) {
+  var byName = function (a, b) { return a.n < b.n ? -1 : a.n > b.n ? 1 : 0; };
+  list.sort(byName);
+  blockedList.sort(byName);
+  function mealBtn(meal, cls) {
     var flags = "";
     if (meal.lo && meal.fresh) flags += '<span class="mp-flag">cook fresh, leftovers OK</span>';
     else { if (meal.lo) flags += '<span class="mp-flag">leftovers OK</span>'; if (meal.fresh) flags += '<span class="mp-flag">cook fresh</span>'; }
-    html += '<button class="mp-opt" data-act="mp-pick" data-id="' + meal.id + '">' + tagPill(meal.t) + '<span class="mp-mid"><span>' + esc(meal.n) + '</span>' + (flags ? '<span>' + flags + '</span>' : '') + '</span><span class="mp-min">' + meal.min + ' min</span></button>';
-  });
-  if (!list.length && !loHTML) html += '<p class="muted">No library meals match this slot with the week\'s proteins. Pick proteins first, or shuffle instead.</p>';
+    return '<button class="mp-opt' + cls + '" data-act="mp-pick" data-id="' + meal.id + '">' + tagPill(meal.t) + '<span class="mp-mid"><span>' + esc(meal.n) + '</span>' + (flags ? '<span>' + flags + '</span>' : '') + '</span><span class="mp-min">' + meal.min + ' min</span></button>';
+  }
+  var html = "";
+  html += loHTML;
+  list.forEach(function (meal) { html += mealBtn(meal, ""); });
+  if (blockedList.length || loBlockedHTML) {
+    html += '<p class="muted small mp-hint"><b>Not usually allowed:</b> ' + (slot === "L" ? "tonight is a dairy dinner" : "lunch today is meat") + '. You can still pick one — it saves, and the day will show the warning.</p>';
+    html += loBlockedHTML;
+    blockedList.forEach(function (meal) { html += mealBtn(meal, " mp-opt-blocked"); });
+  }
+  if (!list.length && !loHTML && !blockedList.length && !loBlockedHTML) html += '<p class="muted">No library meals match this slot with the week\'s proteins. Pick proteins first, or shuffle instead.</p>';
   html += '<button class="mp-opt" data-act="mp-clear"><span>Clear this slot</span></button>';
   document.getElementById("mpList").innerHTML = html;
   var dlg = document.getElementById("mealPickerDlg");
