@@ -314,15 +314,22 @@ try {
     });
 
     await test("r11.fade.only-when-more-to-scroll", async () => {
-      // Wide (suite width): the bar fits, so no fade class.
-      const page = await freshPage(browser);
+      // Fit branch on a dedicated 390px page: at 390 the bar fits in every
+      // environment (CI runner fonts measure ~7% wider, so on the runner it
+      // genuinely overflows at 360 and the app scrolls + fades by design).
+      const page = await browser.newPage();
+      await page.setViewport({ width: 390, height: 844 });
+      page.on("dialog", (d) => d.accept());
+      await page.goto("http://localhost:8899/steady-planner/", { waitUntil: "networkidle0", timeout: 90000 });
+      await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
+      await wait(350);
       const { nw } = await page.evaluate(() => { const tw = weekSunday(todayStr); return { nw: addDays(tw, 7) }; });
       await seedPlan(page, nw, { pro: ["chicken", "salmon"], m0D: { id: "c1" } });
       await gotoPlan(page, nw, "week");
       await wait(250);
       let info = await barInfo(page);
       assert(info, "step bar missing on the plan tab");
-      assert(info.sw <= info.cw + 1, "setup: at width " + WIDTH + " the step bar should fit (sw " + info.sw + " vs cw " + info.cw + ")");
+      assert(info.sw <= info.cw + 1, "setup: at 390 the step bar should fit (sw " + info.sw + " vs cw " + info.cw + ")");
       assert(!info.more, "no fade when there is nothing more to scroll");
       await page.close();
 
