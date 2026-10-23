@@ -97,10 +97,13 @@ function restName(date) {
 function isRest(date) { return !!restName(date); }
 function isPreRest(date) { return !isRest(date) && isRest(addDays(date, 1)); }
 function planCtx(week) {
-  var rest = {}, pre = {};
+  var rest = {}, pre = {}, yt = {};
   for (var d = 0; d <= 6; d++) { var n = restName(addDays(week, d)); if (n) rest[d] = n; }
   for (var d2 = 0; d2 <= 5; d2++) { if (!rest[d2] && rest[d2 + 1]) pre[d2] = true; }
-  return { week: week, today: todayStr, rest: rest, pre: pre };
+  /* Bug-fix batch item 2: hand the engine the week's Yom Tov dates so the
+     midweek top-up can walk off them. */
+  for (var d3 = 0; d3 <= 5; d3++) { var dt = addDays(week, d3); if (YOMTOV[dt]) yt[dt] = true; }
+  return { week: week, today: todayStr, rest: rest, pre: pre, yomtov: yt };
 }
 
 /* ---------------- settings ---------------- */

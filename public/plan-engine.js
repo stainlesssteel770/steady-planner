@@ -654,6 +654,20 @@
       total = latestFinish + packDur;
     }
     var midDay = Math.min(5, eff + 3);
+    /* Bug-fix batch item 2: the midweek top-up is an evening cooking session —
+       never land it on a Yom Tov. Walk to the nearest non-Yom-Tov evening
+       (ctx.yomtov, built by planCtx from calendar.json), earlier-evening-first
+       — a top-up cooks ahead of the Yom Tov — with ties going earlier. */
+    var yt2 = ctx.yomtov || {};
+    if (yt2[addDays(ctx.week, midDay)]) {
+      var bestD = -1, bestDist = 99;
+      for (var wd = 0; wd <= 5; wd++) {
+        if (yt2[addDays(ctx.week, wd)]) continue;
+        var wdist = Math.abs(wd - midDay);
+        if (wdist < bestDist || (wdist === bestDist && wd < bestD)) { bestD = wd; bestDist = wdist; }
+      }
+      if (bestD >= 0) midDay = bestD;
+    }
     var midTasks = Object.keys(mid).sort(function (a, b) { return (COMP[a].o - COMP[b].o) || (a < b ? -1 : 1); }).map(function (cid) {
       var c = COMP[cid], mm = mid[cid];
       return { tick: "mid_" + cid, id: cid, title: c.n, how: c.h, amount: amountText(c, mm.amount), feeds: mm.feeds.slice(), a: c.a, meat: !!c.meat };

@@ -87,6 +87,41 @@ try {
       await page.close();
     });
   }
+
+  /* ============ Item 2: midweek top-up never lands on Yom Tov ============ */
+  if (run("bf2")) {
+    await test("r14.bf2.topup-walks-off-yomtov-earlier-first", async () => {
+      const page = await freshPage(browser);
+      const res = await page.evaluate(() => {
+        const cells = { pro: ["chicken", "salmon"] };
+        const mkCtx = (yt) => ({ week: "2027-04-25", today: "2027-04-25", rest: {}, pre: {}, yomtov: yt });
+        const out = {};
+        // Real Pesach 2027 week (Sun Apr 25 - Fri Apr 30): VII=Wed 28, VIII=Thu 29.
+        let p = PLAN_ENGINE.prep(mkCtx({ "2027-04-28": true, "2027-04-29": true }), cells, 0);
+        out.realWeek = p.midweek.date;
+        // Tie-break: only Wed is Yom Tov; Tue and Thu are both 1 away -> earlier (Tue) wins.
+        p = PLAN_ENGINE.prep(mkCtx({ "2027-04-28": true }), cells, 0);
+        out.tie = p.midweek.date;
+        // Tue+Wed blocked -> nearest free is Thu (dist 1), not Mon (dist 2).
+        p = PLAN_ENGINE.prep(mkCtx({ "2027-04-27": true, "2027-04-28": true }), cells, 0);
+        out.later = p.midweek.date;
+        // Control: no Yom Tov -> unchanged Wednesday.
+        p = PLAN_ENGINE.prep(mkCtx({}), cells, 0);
+        out.control = p.midweek.date;
+        // App side: planCtx must hand the engine the week's Yom Tov dates.
+        out.appCtx = planCtx("2027-04-25");
+        return out;
+      });
+      assert(res.realWeek === "2027-04-27", "Pesach week top-up should walk to Tue Apr 27 (nearest non-Yom-Tov), got " + res.realWeek);
+      assert(res.tie === "2027-04-27", "tie between Tue/Thu should go earlier (Tue Apr 27), got " + res.tie);
+      assert(res.later === "2027-04-29", "with Tue+Wed blocked the top-up should land Thu Apr 29, got " + res.later);
+      assert(res.control === "2027-04-28", "no-Yom-Tov control should stay Wed Apr 28, got " + res.control);
+      assert(res.appCtx.yomtov && res.appCtx.yomtov["2027-04-28"] && res.appCtx.yomtov["2027-04-29"],
+        "planCtx should carry the week's Yom Tov dates (Apr 28/29), got " + JSON.stringify(res.appCtx.yomtov || null));
+      await page.close();
+    });
+  }
+
 } finally {
   await browser.close();
 }
