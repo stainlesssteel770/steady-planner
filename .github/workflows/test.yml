@@ -1,0 +1,44 @@
+name: Steady test battery
+
+# Runs the full puppeteer battery on GitHub's runners so the release
+# gate does not depend on local machine memory. Local runs still work
+# exactly as before: the suites default to the local Chrome path and
+# CHROME_PATH (set below) is only an override for CI.
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  battery:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        width: [390, 360]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install Chrome for Testing (pinned to the local version)
+        run: |
+          OUT=$(npx -y @puppeteer/browsers install chrome@155.0.8059.84)
+          echo "$OUT"
+          echo "CHROME_PATH=$(echo "$OUT" | tail -1 | awk '{print $NF}')" >> "$GITHUB_ENV"
+      - name: Install test dependencies
+        working-directory: tests
+        run: npm ci
+      - name: Serve the app at /steady-planner/
+        run: |
+          mkdir -p srvroot
+          ln -s "$GITHUB_WORKSPACE/public" srvroot/steady-planner
+          nohup python3 -m http.server 8899 --directory srvroot >/dev/null 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -sf -o /dev/null http://localhost:8899/steady-planner/; then exit 0; fi
+            sleep 1
+          done
+          echo "test server did not come up" >&2
+          exit 1
+      - name: Run battery at ${{ matrix.width }}px
+        working-directory: tests
+        run: bash run_battery.sh ${{ matrix.width }} all
