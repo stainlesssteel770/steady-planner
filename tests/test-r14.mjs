@@ -416,6 +416,37 @@ try {
       await page.close();
     });
   }
+
+  /* ============ Item 10: calendar fasts + Nine Days data ============ */
+  if (run("bf10")) {
+    await test("r14.bf10.calendar-fasts-and-nine-days", async () => {
+      const page = await freshPage(browser);
+      const res = await page.evaluate(async () => {
+        const j = await (await fetch("calendar.json")).json();
+        const byKind = {};
+        j.events.forEach((e) => { (byKind[e.k] = byKind[e.k] || {})[e.d] = e.t; });
+        return { fast: byKind.fast || {}, tisha: byKind.tishabav || {}, nine: j.nineDays || [], yomtovCount: (j.events || []).filter((e) => e.k === "yomtov").length };
+      });
+      const F = res.fast, T = res.tisha;
+      // Hebcal observed dates (diaspora), as returned by the API.
+      const expectFast = {
+        "2026-03-02": /Esther/, "2026-07-02": /Tammuz/, "2026-09-14": /Gedaliah/, "2026-12-20": /Tevet/,
+        "2027-03-22": /Esther/, "2027-07-22": /Tammuz/, "2027-10-04": /Gedaliah/,
+        "2028-01-09": /Tevet/, "2028-03-09": /Esther/, "2028-07-11": /Tammuz/, "2028-09-24": /Gedaliah/, "2028-12-28": /Tevet/
+      };
+      Object.keys(expectFast).forEach((d) => assert(F[d] && expectFast[d].test(F[d]), "minor fast missing/misnamed at " + d + ": " + F[d]));
+      assert(Object.keys(F).length === 12, "expected exactly 12 minor-fast events (2026-2028), got " + Object.keys(F).length);
+      ["2026-07-23", "2027-08-12", "2028-08-01"].forEach((d) => assert(T[d] && /B.Av|B’Av/.test(T[d]), "Tisha B'Av missing at " + d + ": " + T[d]));
+      assert(res.yomtovCount === 30, "the 30 yomtov events must be preserved, got " + res.yomtovCount);
+      // Nine Days: 1-9 Av each year, ending on Tisha B'Av.
+      const spans = [["2026-07-15", "2026-07-23"], ["2027-08-04", "2027-08-12"], ["2028-07-24", "2028-08-01"]];
+      assert(res.nine.length === 27, "nineDays should hold 27 dates (9 x 3 years), got " + res.nine.length);
+      spans.forEach(([a, b]) => {
+        assert(res.nine.includes(a) && res.nine.includes(b), "nineDays span " + a + ".." + b + " incomplete");
+      });
+      await page.close();
+    });
+  }
 } finally {
   await browser.close();
 }
