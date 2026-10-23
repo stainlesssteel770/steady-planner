@@ -312,7 +312,12 @@ function fixStepFade() {
 window.addEventListener("resize", fixStepFade);
 function syncNav() {
   var btns = document.querySelectorAll("#bottomNav button");
-  btns.forEach(function (b) { b.classList.toggle("on", b.getAttribute("data-tab") === ui.tab); });
+  btns.forEach(function (b) {
+    var on = b.getAttribute("data-tab") === ui.tab;
+    b.classList.toggle("on", on);
+    /* Bug-fix batch item 8: the active tab also exposes aria-current. */
+    if (on) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
+  });
 }
 var histGuard = false;
 function histSnapshot() { return { tab: ui.tab, planStep: ui.planStep || null, planWs: ui.planWs || null }; }
@@ -552,8 +557,8 @@ function renderToday() {
   h += '<details class="card" id="weighDetails"' + (ui.weighOpen ? " open" : "") + '><summary>Weekly check-in · optional · <span class="muted small">' + status + '</span></summary>' +
     '<p class="muted">Once a week if you feel like it: same morning, after the bathroom, before eating. It\'s just for the trend.</p>';
   if (!isRest(todayStr)) {
-    h += '<div class="row wrap"><label>Weight (lb)<br><input class="checkin-num" id="ciWeight" data-keep type="number" step="0.1" min="50" max="700" inputmode="decimal" value="' + (thisWeekEntry && typeof thisWeekEntry.weight === "number" ? thisWeekEntry.weight : "") + '"></label>' +
-      '<label>Waist (in)<br><input class="checkin-num" id="ciWaist" data-keep type="number" step="0.01" min="10" max="90" inputmode="decimal" value="' + (thisWeekEntry && typeof thisWeekEntry.waist === "number" ? thisWeekEntry.waist : "") + '"></label></div>' +
+    h += '<div class="row wrap"><label>Weight (lb)<br><input class="checkin-num" id="ciWeight" data-keep type="number" step="0.1" min="50" max="700" inputmode="decimal" aria-label="Weight (lb)" value="' + (thisWeekEntry && typeof thisWeekEntry.weight === "number" ? thisWeekEntry.weight : "") + '"></label>' +
+      '<label>Waist (in)<br><input class="checkin-num" id="ciWaist" data-keep type="number" step="0.01" min="10" max="90" inputmode="decimal" aria-label="Waist (in)" value="' + (thisWeekEntry && typeof thisWeekEntry.waist === "number" ? thisWeekEntry.waist : "") + '"></label></div>' +
       '<p class="inline-err" id="ciError" role="alert" hidden></p>' +
       '<p><button class="btn primary" data-act="checkin-save">Save check-in</button></p>';
   }
@@ -737,8 +742,8 @@ function renderPlan() {
   var pros = ENGINE.proteinsOf(cells);
   var h = '<section class="card"><div class="row spread plan-head"><div><h2 style="margin:0">Meal plan</h2>' +
     '<div class="muted small">' + shortDate(week) + ' – ' + shortDate(addDays(week, 5)) + ' · Sunday to Friday</div></div>' +
-    '<div class="week-toggle seg"><button data-act="plan-week" data-w="' + tw + '" class="' + (week === tw ? "on" : "") + '">This week</button>' +
-    '<button data-act="plan-week" data-w="' + addDays(tw, 7) + '" class="' + (week === addDays(tw, 7) ? "on" : "") + '">Next week</button></div></div>';
+    '<div class="week-toggle seg"><button data-act="plan-week" data-w="' + tw + '" class="' + (week === tw ? "on" : "") + '" aria-pressed="' + (week === tw) + '">This week</button>' +
+    '<button data-act="plan-week" data-w="' + addDays(tw, 7) + '" class="' + (week === addDays(tw, 7) ? "on" : "") + '" aria-pressed="' + (week === addDays(tw, 7)) + '">Next week</button></div></div>';
   // stepper completion
   var shop = ENGINE.shopping(ctx, cells);
   var totalLines = shop.sections.reduce(function (n, s) { return n + s.lines.length; }, 0) + shop.customs.length;
@@ -796,7 +801,7 @@ function planProHTML(week, cells, ctx, pros) {
   PD.PROTEINS.forEach(function (p) {
     var picked = pros.indexOf(p[0]) >= 0;
     var dis = !picked && pros.length >= 4;
-    h += '<button class="chip protein-chip' + (picked ? " on" : "") + '" data-act="pro" data-id="' + p[0] + '"' + (dis ? " disabled" : "") + '>' +
+    h += '<button class="chip protein-chip' + (picked ? " on" : "") + '" data-act="pro" data-id="' + p[0] + '"' + (dis ? " disabled" : "") + ' aria-pressed="' + picked + '">' +
       '<span>' + tagPill(p[2]) + ' <b>' + esc(p[1]) + '</b></span><span class="hint">' + esc(p[3]) + '</span></button>';
   });
   h += '</div><p class="muted">' + pros.length + ' picked · ' + (pros.length >= 4 ? "that\'s the max" : pros.length >= 2 ? "ready when you are" : "pick at least 2") + '</p>';
@@ -826,7 +831,7 @@ function mealCardHTML(ctx, cells, key) {
   var slotName = r.slot === "L" ? "Lunch ~1pm" : "Dinner ~8pm";
   var h = '<div class="meal-card" data-act="meal-pick" data-k="' + key + '"><div class="row spread"><span class="slot-label">' + slotName + '</span>' +
     '<span class="meal-actions"><button class="mini-btn" data-act="shuffle-one" data-k="' + key + '"' + (r.locked ? " disabled" : "") + ' aria-label="Shuffle this meal">🔀</button>' +
-    '<button class="mini-btn" data-act="lock" data-k="' + key + '" aria-label="Lock this meal">' + (r.locked ? "🔒" : "🔓") + '</button></span></div>';
+    '<button class="mini-btn" data-act="lock" data-k="' + key + '" aria-label="Lock this meal" aria-pressed="' + r.locked + '">' + (r.locked ? "🔒" : "🔓") + '</button></span></div>';
   if (!r.meal) { h += '<div class="meal-name muted">Nothing planned yet</div></div>'; return h; }
   var hint = r.lo ? "reheat" : r.meal.min >= 90 ? "prep-day pot" : r.meal.min + " min";
   var srvMC = ENGINE.servingsOf(cells);
@@ -930,7 +935,7 @@ function planPrepHTML(week, cells, ctx, prep) {
   var h = '<section class="card"><h3>Your prep day</h3>' +
     '<p class="muted">Your prep day, saved for every week. Pick any day; Shabbos is off the list.</p><div class="day-picker">';
   for (var d = 0; d <= 5; d++) {
-    h += '<button class="chip' + (saved === d ? " on" : "") + '" data-act="prepday" data-d="' + d + '"' + (ctx.rest[d] ? " disabled" : "") + '>' + ENGINE.DAY3[d] + '</button>';
+    h += '<button class="chip' + (saved === d ? " on" : "") + '" data-act="prepday" data-d="' + d + '"' + (ctx.rest[d] ? " disabled" : "") + ' aria-pressed="' + (saved === d) + '">' + ENGINE.DAY3[d] + '</button>';
   }
   h += '</div>';
   if (prep.note) h += '<p class="warn">' + esc(prep.note) + '</p>';

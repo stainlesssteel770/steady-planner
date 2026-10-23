@@ -341,6 +341,81 @@ try {
       await page.close();
     });
   }
+
+  /* ============ Item 8: screen-reader names and toggle states ============ */
+  if (run("bf8")) {
+    await test("r14.bf8.accessible-names-and-toggle-states", async () => {
+      const page = await freshPage(browser);
+      const fmtD = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+      const now = new Date();
+      const cur = fmtD(new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay()));
+      const nxt = fmtD(new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay() + 7));
+      // Every visible button on the main screens exposes an accessible name.
+      const unnamedOn = async (tab, step) => page.evaluate((t, s) => {
+        ui.tab = t; if (s) ui.planStep = s; saveUi(); render(true);
+        return Array.from(document.querySelectorAll("button")).filter((el) => {
+          const r = el.getBoundingClientRect();
+          if (!(r.width > 0 && r.height > 0)) return false;
+          return !((el.getAttribute("aria-label") || el.textContent || "").trim());
+        }).length;
+      }, tab, step);
+      for (const [t, s] of [["today", null], ["workout", null], ["plan", "pro"], ["plan", "week"], ["plan", "shop"], ["plan", "prep"], ["meals", null]]) {
+        await wait(150);
+        const n = await unnamedOn(t, s);
+        assert(n === 0, "screen " + t + "/" + (s || "-") + " has " + n + " buttons with no accessible name");
+      }
+      // Toggle states: protein chips (drive the real chip: pick, then read).
+      const pro0 = await page.evaluate((wk) => {
+        ui.tab = "plan"; ui.planStep = "pro"; ui.planWs = wk; saveUi(); render(true);
+        const c = document.querySelector('[data-act="pro"][data-id="chicken"]');
+        return c && c.getAttribute("aria-pressed");
+      }, cur);
+      assert(pro0 === "false", "an unpicked protein chip should read aria-pressed=false, got: " + pro0);
+      await page.evaluate(() => document.querySelector('[data-act="pro"][data-id="chicken"]').click());
+      await wait(250);
+      const pro1 = await page.evaluate(() => {
+        const on = document.querySelector('[data-act="pro"][data-id="chicken"]');
+        const off = document.querySelector('[data-act="pro"][data-id="stew"]');
+        return { on: on && on.getAttribute("aria-pressed"), off: off && off.getAttribute("aria-pressed") };
+      });
+      assert(pro1.on === "true" && pro1.off === "false", "protein chips should expose aria-pressed after picking, got: " + JSON.stringify(pro1));
+      // Toggle states: prep-day chips (default Sunday selected; on the Prep step).
+      const pd = await page.evaluate(() => {
+        ui.planStep = "prep"; saveUi(); render(true);
+        const chips = Array.from(document.querySelectorAll('[data-act="prepday"]'));
+        return chips.map((c) => c.getAttribute("aria-pressed"));
+      });
+      assert(pd.length > 0 && pd.every((v) => v === "true" || v === "false") && pd.filter((v) => v === "true").length === 1,
+        "prep-day chips should expose aria-pressed with exactly one selected, got: " + JSON.stringify(pd));
+      // Toggle states: week toggle + bottom nav.
+      const wkT = await page.evaluate((wk) => {
+        ui.planWs = wk; saveUi(); render(true);
+        const btns = Array.from(document.querySelectorAll('[data-act="plan-week"]'));
+        const nav = document.querySelector('#bottomNav [data-tab="plan"]');
+        return { pressed: btns.map((b) => b.getAttribute("aria-pressed")), navCurrent: nav && nav.getAttribute("aria-current") };
+      }, nxt);
+      assert(JSON.stringify(wkT.pressed) === JSON.stringify(["false", "true"]), "week toggle should expose aria-pressed for This/Next, got: " + JSON.stringify(wkT.pressed));
+      assert(wkT.navCurrent === "page", "the active bottom-nav tab should carry aria-current=page, got: " + wkT.navCurrent);
+      // Toggle states: meal-card lock button.
+      const lock = await page.evaluate((wk) => {
+        state.plans[wk] = { f: { pro: { v: ["chicken", "stew"], ts: 1000 }, m0D: { v: { id: "c1", k: 1 }, ts: 1000 }, m1D: { v: { id: "s1" }, ts: 1000 } } };
+        saveLocal();
+        ui.tab = "plan"; ui.planWs = wk; ui.planStep = "week"; saveUi(); render(true);
+        const lockedBtn = document.querySelector('.meal-card[data-k="m0D"] [data-act="lock"]');
+        const freeBtn = document.querySelector('.meal-card[data-k="m1D"] [data-act="lock"]');
+        return { locked: lockedBtn && lockedBtn.getAttribute("aria-pressed"), free: freeBtn && freeBtn.getAttribute("aria-pressed") };
+      }, nxt);
+      assert(lock.locked === "true" && lock.free === "false", "lock buttons should expose aria-pressed, got: " + JSON.stringify(lock));
+      // Check-in inputs carry explicit labels.
+      const ci = await page.evaluate(() => {
+        ui.tab = "today"; saveUi(); render(true);
+        const w = document.getElementById("ciWeight"), wa = document.getElementById("ciWaist");
+        return { w: w && w.getAttribute("aria-label"), wa: wa && wa.getAttribute("aria-label") };
+      });
+      assert(ci.w && ci.wa, "weight/waist inputs should have aria-labels, got: " + JSON.stringify(ci));
+      await page.close();
+    });
+  }
 } finally {
   await browser.close();
 }
