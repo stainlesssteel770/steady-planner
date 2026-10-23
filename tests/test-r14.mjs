@@ -289,13 +289,17 @@ try {
       const badStatus = await page.evaluate(() => document.getElementById("syncStatus").textContent);
       assert(badStatus !== "Saved on this phone", "status must not claim a save that failed, got: '" + badStatus + "'");
       assert(badStatus.length > 0, "a failure status should be shown instead, got empty");
-      // Control: writes work again -> the saved status returns.
+      // Mark's approved wording + a Try again button (issue #1, 2026-10-23).
+      assert(badStatus.indexOf("Couldn't save your last change. Check your phone's storage, then tap Try again.") >= 0, "failure status should carry Mark's approved text, got: '" + badStatus + "'");
+      const retryBtn = await page.evaluate(() => { const b = document.querySelector('[data-act="retry-save"]'); return b ? b.textContent.trim() : null; });
+      assert(retryBtn === "Try again", "a 'Try again' button should accompany the failure status, got: " + retryBtn);
+      // Control: writes work again -> tapping Try again saves and the saved
+      // status returns.
       await page.evaluate(() => { Storage.prototype.setItem = window.__origSetItem; });
-      await page.waitForSelector('[data-act="tick"][data-f="drinks"]', { timeout: 15000 });
-      await page.evaluate(() => document.querySelector('[data-act="tick"][data-f="drinks"]').click());
+      await page.evaluate(() => document.querySelector('[data-act="retry-save"]').click());
       await wait(500);
       const okStatus = await page.evaluate(() => document.getElementById("syncStatus").textContent);
-      assert(okStatus === "Saved on this phone", "control: a successful save should show the saved status, got: '" + okStatus + "'");
+      assert(okStatus === "Saved on this phone", "control: a successful retry should show the saved status, got: '" + okStatus + "'");
       await page.close();
     });
   }

@@ -182,6 +182,13 @@ function setStatus(text) {
   var el = document.getElementById("syncStatus");
   if (el) el.textContent = text;
 }
+function setStatusRetry() {
+  /* Wording approved by Mark (issue #1, 2026-10-23): the failure status
+     carries a Try again button that retries the save. */
+  var el = document.getElementById("syncStatus");
+  if (el) el.innerHTML = "Couldn't save your last change. Check your phone's storage, then tap Try again. " +
+    "<button class=\"btn\" data-act=\"retry-save\">Try again</button>";
+}
 function statusAfterEdit() {
   /* Bug-fix batch item 3: only claim "Saved on this phone" when the save
      actually went through. On a stale refusal the reload banner carries the
@@ -192,10 +199,11 @@ function statusAfterEdit() {
     settleTimer = setTimeout(function () { setStatus(""); }, 2000);
   } else if (!lastSaveStale) {
     /* Bug-fix batch item 6: a failed save (e.g. storage full) must say so,
-       not claim success. PLACEHOLDER wording — held for Mark (flagged in
-       the batch report). No auto-clear: it stays until a save succeeds. */
+       not claim success — with Mark's approved wording and a Try again
+       button (issue #1, 2026-10-23). No auto-clear: it stays until a save
+       succeeds. */
     clearTimeout(settleTimer);
-    setStatus("Couldn't save — storage may be full");
+    setStatusRetry();
   }
 }
 function applyCells(doc, f, cleared) {
@@ -1503,6 +1511,7 @@ document.addEventListener("click", function (ev) {
   // tabs
   if (act === "tab") { gotoTab(el.getAttribute("data-tab")); return; }
   if (act === "stale-reload") { window.location.reload(); return; }
+  if (act === "retry-save") { saveLocal(); statusAfterEdit(); return; }
   if (act === "goto-workout") { gotoTab("workout"); return; }
   if (act === "goto-plan-week") { ui.planWs = weekSunday(selDate); gotoTab("plan", "week"); return; }
   if (act === "goto-plan-prep") { gotoTab("plan", "prep"); return; }
