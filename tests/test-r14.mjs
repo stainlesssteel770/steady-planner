@@ -916,6 +916,65 @@ try {
       await page.close();
     });
   }
+
+  /* ============ v26 item 3: completion moment at a full score ============ */
+  if (run("v26i3")) {
+    await test("r14.v26i3.completion-moment", async () => {
+      const page = await freshPage(browser);
+      // Pin TESTMODE to Wednesday 2026-10-21 (a plain 10-point day).
+      await page.evaluate(() => { try { localStorage.setItem("steady.testmode", JSON.stringify({ fake: "2026-10-21", lastSeen: Date.now() })); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
+      // Seed the day one tick short of full: everything except "bed".
+      const pre = await page.evaluate(() => {
+        const f = {};
+        ["proteinB", "proteinL", "proteinD", "vegL", "vegD", "mealsPlan", "treat", "kitchenClosed", "drinks", "noAlcohol", "workoutOff"].forEach((k) => { f[k] = { v: true, ts: 1 }; });
+        f.steps = { v: 9000, ts: 1 };
+        state.days["2026-10-21"] = { f };
+        saveLocal(); ui.tab = "today"; saveUi(); render(true);
+        const sc = scoreDay("2026-10-21");
+        return { score: sc.score, of: sc.of, celebrated: ui.celebratedDate || null, stripMoment: !!document.querySelector(".score-strip.moment") };
+      });
+      assert(pre.of === 10 && pre.score === 9, "precondition: seeded day should be 9/10, got " + JSON.stringify(pre));
+      assert(!pre.stripMoment, "no moment before the day completes");
+      // The final tick, via the real button.
+      await page.evaluate(() => document.querySelector('[data-act="tick"][data-f="bed"]').click());
+      await wait(350);
+      const post = await page.evaluate(() => {
+        const strip = document.querySelector(".score-strip");
+        const banner = document.querySelector(".banner.full");
+        const sc = scoreDay("2026-10-21");
+        return {
+          score: sc.score, of: sc.of,
+          stripMoment: !!document.querySelector(".score-strip.moment"),
+          bannerMoment: !!document.querySelector(".banner.full.moment"),
+          bannerText: banner ? banner.textContent.trim() : null,
+          celebrated: ui.celebratedDate || null
+        };
+      });
+      assert(post.score === 10 && post.of === 10, "the bed tick should complete the day, got " + JSON.stringify(post));
+      assert(post.stripMoment, "the score strip should carry the one-time moment class on the completing render");
+      assert(post.bannerMoment, "the full-day banner should carry the moment class on the completing render");
+      assert(post.bannerText === "All 10. That's a full day.", "banner copy must be unchanged, got: " + JSON.stringify(post.bannerText));
+      assert(post.celebrated === "2026-10-21", "the celebrated flag should be recorded for the date");
+      // Reload: the day is still full, but the moment must not replay.
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
+      await page.evaluate(() => { ui.tab = "today"; saveUi(); render(true); });
+      await wait(300);
+      const again = await page.evaluate(() => ({ stripMoment: !!document.querySelector(".score-strip.moment"), banner: !!document.querySelector(".banner.full") }));
+      assert(!again.stripMoment, "the moment must not replay on reload");
+      assert(again.banner, "the static full-day banner should still show after reload");
+      // Reduced-motion: the CSS must disable the moment animation.
+      const css = await page.evaluate(() => fetch("styles.css").then((r) => r.text()));
+      assert(css.indexOf("prefers-reduced-motion") >= 0, "styles.css should honor prefers-reduced-motion");
+      assert(css.indexOf(".score-strip.moment") >= 0, "styles.css should define the strip moment animation");
+      // Clean up the fake so later sections see the real date.
+      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.close();
+    });
+  }
 } finally {
   await browser.close();
 }

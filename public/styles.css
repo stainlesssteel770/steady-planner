@@ -75,6 +75,14 @@ h3 { font-size: 1.02rem; margin: 0.6em 0 0.3em; }
 .meal-detail { margin: 2px 0 10px; }
 .meal-ings { margin: 6px 0 0; padding-left: 18px; }
 .meal-ings li { margin: 2px 0; }
+/* v26 item 3: completion moment — one gentle pulse the day it completes */
+.score-strip.moment { animation: stripPulse 0.7s ease-in-out 2; }
+.banner.full.moment { animation: bannerIn 0.6s ease-out; }
+@keyframes stripPulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+@keyframes bannerIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .score-strip.moment, .banner.full.moment { animation: none; }
+}
 
 /* shell */
 .topbar {

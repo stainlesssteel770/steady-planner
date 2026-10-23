@@ -438,6 +438,16 @@ function checkinEntries() {
 function renderToday() {
   var date = selDate, rest = restName(date), pre = !rest && isPreRest(date);
   var sc = rest ? null : scoreDay(date);
+  /* v26 item 3: completion moment — the first render on which today is
+     complete gets a one-time animation class on the score strip and the
+     full-day banner. Once per date (additive ui flag, persisted so a
+     reload never replays it); no sound; CSS honors reduced-motion. */
+  var celebrate = false;
+  if (!rest && date === todayStr && sc && sc.of > 0 && sc.score === sc.of && ui.celebratedDate !== date) {
+    celebrate = true;
+    ui.celebratedDate = date;
+    saveUi();
+  }
   var h = "";
   // Hero
   h += '<section class="card hero"><div class="daynav">' +
@@ -503,12 +513,12 @@ function renderToday() {
   if (pre) {
     h += '<div class="banner prerest"><b>' + (dowOf(addDays(date, 1)) === 6 ? "Shabbos" : "Yom Tov") + ' starts tonight.</b> Only the daytime habits count today, so there\'s nothing to log after candle lighting.</div>';
   }
-  if (sc.score === sc.of && sc.of > 0) h += '<div class="banner full">All ' + sc.of + '. That\'s a full day.</div>';
+  if (sc.score === sc.of && sc.of > 0) h += '<div class="banner full' + (celebrate ? ' moment' : '') + '">All ' + sc.of + '. That\'s a full day.</div>';
 
   /* v25 item 4: sticky score strip — pure CSS position:sticky, no scroll
      listener and no height toggling (the collapsing-header jank lesson).
      It rebuilds with every render, so the number is always live. */
-  h += '<div class="score-strip"><b>' + sc.score + '/' + sc.of + '</b> · ' + (date === todayStr ? "Today" : esc(longDate(date))) + '</div>';
+  h += '<div class="score-strip' + (celebrate ? ' moment' : '') + '"><b>' + sc.score + '/' + sc.of + '</b> · ' + (date === todayStr ? "Today" : esc(longDate(date))) + '</div>';
 
   /* v25 item 2: "On the plan" now renders directly above the habits
      section (it used to sit below all 10 habit rows). Block moved as-is. */
