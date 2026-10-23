@@ -655,6 +655,39 @@ try {
       await page.close();
     });
   }
+
+  /* ============ v25 item 2: On-the-plan above the habits ============ */
+  if (run("v25i2")) {
+    await test("r14.v25i2.plan-card-above-habits", async () => {
+      const page = await freshPage(browser);
+      await page.evaluate(() => {
+        ui.tab = "today"; saveUi(); render(true);
+        // Seed today's dinner from the data itself (first dinner-capable meal).
+        const wk = weekSunday(todayStr), dow = dowOf(todayStr);
+        const meal = Object.values(PLAN_DATA.MEALS).find((m) => (m.s || "").indexOf("D") >= 0);
+        state.plans[wk] = { f: { pro: { v: [meal.p], ts: 1 } } };
+        state.plans[wk].f["m" + dow + "D"] = { v: { id: meal.id }, ts: 1 };
+        saveLocal(); render(true);
+      });
+      await wait(300);
+      const res = await page.evaluate(() => {
+        const sections = Array.from(document.querySelectorAll("section.card"));
+        const planIdx = sections.findIndex((s) => { const h = s.querySelector("h3"); return h && h.textContent === "On the plan"; });
+        const habIdx = sections.findIndex((s) => s.querySelector(".habit"));
+        const link = document.querySelector('[data-act="goto-plan-week"]');
+        return { planIdx, habIdx, hasLink: !!link };
+      });
+      assert(res.planIdx !== -1, "the On-the-plan card should render on a planned day");
+      assert(res.habIdx !== -1, "the habits section should render");
+      assert(res.planIdx < res.habIdx, "On the plan should sit above the habits (plan " + res.planIdx + " vs habits " + res.habIdx + ")");
+      assert(res.hasLink, "the card's Week link should still be there");
+      await page.evaluate(() => document.querySelector('[data-act="goto-plan-week"]').click());
+      await wait(300);
+      const tab = await page.evaluate(() => ui.tab);
+      assert(tab === "plan", "the Week link should still open the plan tab, got: " + tab);
+      await page.close();
+    });
+  }
 } finally {
   await browser.close();
 }

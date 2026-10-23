@@ -505,6 +505,18 @@ function renderToday() {
   }
   if (sc.score === sc.of && sc.of > 0) h += '<div class="banner full">All ' + sc.of + '. That\'s a full day.</div>';
 
+  /* v25 item 2: "On the plan" now renders directly above the habits
+     section (it used to sit below all 10 habit rows). Block moved as-is. */
+  var wk = weekSunday(date), cells = planCells(wk);
+  if (Object.keys(cells).some(function (k) { return /^m\d[LD]$/.test(k) && cells[k]; })) {
+    var ctx = planCtx(wk), lines = "";
+    ["L", "D"].forEach(function (sl) {
+      var r = ENGINE.resolve(ctx, cells, "m" + dowOf(date) + sl);
+      if (r && r.meal) lines += '<p><b>' + (sl === "L" ? "Lunch" : "Dinner") + ':</b> ' + (r.lo ? "Leftovers: " : "") + esc(r.meal.n) + '</p>';
+    });
+    if (lines) h += '<section class="card"><h3>On the plan</h3>' + lines + '<button class="link-btn" data-act="goto-plan-week">Week →</button></section>';
+  }
+
   // Habits (extra counters for #3/#7: see the global EXTRAS map)
   h += '<section class="card">';
   STEADY.habits.forEach(function (hab, idx) {
@@ -557,16 +569,6 @@ function renderToday() {
   });
   h += '</section>';
 
-  // On the plan
-  var wk = weekSunday(date), cells = planCells(wk);
-  if (Object.keys(cells).some(function (k) { return /^m\d[LD]$/.test(k) && cells[k]; })) {
-    var ctx = planCtx(wk), lines = "";
-    ["L", "D"].forEach(function (sl) {
-      var r = ENGINE.resolve(ctx, cells, "m" + dowOf(date) + sl);
-      if (r && r.meal) lines += '<p><b>' + (sl === "L" ? "Lunch" : "Dinner") + ':</b> ' + (r.lo ? "Leftovers: " : "") + esc(r.meal.n) + '</p>';
-    });
-    if (lines) h += '<section class="card"><h3>On the plan</h3>' + lines + '<button class="link-btn" data-act="goto-plan-week">Week →</button></section>';
-  }
   // Prep day card
   if (date === todayStr && dowOf(date) === getSetting("prepDay") && dowOf(date) <= 5) {
     var twk = weekSunday(todayStr), tcells = planCells(twk), tctx = planCtx(twk);
