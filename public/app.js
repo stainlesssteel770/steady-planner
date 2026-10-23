@@ -513,13 +513,40 @@ function renderToday() {
   /* v25 item 2: "On the plan" now renders directly above the habits
      section (it used to sit below all 10 habit rows). Block moved as-is. */
   var wk = weekSunday(date), cells = planCells(wk);
-  if (Object.keys(cells).some(function (k) { return /^m\d[LD]$/.test(k) && cells[k]; })) {
+  var planGuard = Object.keys(cells).some(function (k) { return /^m\d[LD]$/.test(k) && cells[k]; });
+  if (planGuard || date === todayStr) {
     var ctx = planCtx(wk), lines = "";
     ["L", "D"].forEach(function (sl) {
       var r = ENGINE.resolve(ctx, cells, "m" + dowOf(date) + sl);
       if (r && r.meal) lines += '<p><b>' + (sl === "L" ? "Lunch" : "Dinner") + ':</b> ' + (r.lo ? "Leftovers: " : "") + esc(r.meal.n) + '</p>';
     });
-    if (lines) h += '<section class="card"><h3>On the plan</h3>' + lines + '<button class="link-btn" data-act="goto-plan-week">Week →</button></section>';
+    /* v26 item 1: Tomorrow block — tomorrow's lunch/dinner plus a
+       "tonight" thaw line, shown only when the displayed day is today.
+       The thaw lookup uses the week's plan as made from its prep day
+       (ctx.today set before the week): prep() re-bases a current week
+       to today, which shrinks tomorrow's offset to 1 day and would
+       hide a portion frozen at prep. */
+    var tLines = "";
+    if (date === todayStr) {
+      var tmr = addDays(date, 1);
+      if (!isRest(tmr)) {
+        var wkT = weekSunday(tmr), cellsT = planCells(wkT), ctxT = planCtx(wkT), tm = "";
+        ["L", "D"].forEach(function (sl) {
+          var r = ENGINE.resolve(ctxT, cellsT, "m" + dowOf(tmr) + sl);
+          if (r && r.meal) tm += '<p><b>' + (sl === "L" ? "Lunch" : "Dinner") + ':</b> ' + (r.lo ? "Leftovers: " : "") + esc(r.meal.n) + '</p>';
+        });
+        if (tm) {
+          tLines = '<div class="tmr"><h4>Tomorrow</h4>' + tm;
+          var pctx = {}; Object.keys(ctxT).forEach(function (k2) { pctx[k2] = ctxT[k2]; });
+          pctx.today = addDays(wkT, -1);
+          ENGINE.prep(pctx, cellsT, getSetting("prepDay")).midweek.thaws.forEach(function (t) {
+            if (t.dow === dowOf(tmr)) tLines += '<p class="tmr-thaw">❄ ' + esc(t.text.replace(/^Move /, "Tonight: move ")) + '</p>';
+          });
+          tLines += '</div>';
+        }
+      }
+    }
+    if (lines || tLines) h += '<section class="card"><h3>On the plan</h3>' + lines + tLines + '<button class="link-btn" data-act="goto-plan-week">Week →</button></section>';
   }
 
   // Habits (extra counters for #3/#7: see the global EXTRAS map)

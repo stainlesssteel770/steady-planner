@@ -64,6 +64,10 @@ h3 { font-size: 1.02rem; margin: 0.6em 0 0.3em; }
 .habit-group { margin-top: 0; font-size: 0.82rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
 /* v25 item 4: sticky score strip (pure CSS sticky; no JS scroll handling) */
 .score-strip { position: sticky; top: 0; z-index: 6; background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; margin: 10px 0 0; font-size: 0.9rem; text-align: center; }
+/* v26 item 1: Tomorrow block inside the On-the-plan card */
+.tmr { border-top: 1px dashed var(--line); margin-top: 10px; padding-top: 8px; }
+.tmr h4 { margin: 0 0 4px; font-size: 0.95rem; }
+.tmr-thaw { font-weight: 600; }
 
 /* shell */
 .topbar {

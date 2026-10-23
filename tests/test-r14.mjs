@@ -774,6 +774,89 @@ try {
       await page.close();
     });
   }
+
+  /* ============ v26 item 1: Tomorrow line + thaw reminder ============ */
+  if (run("v26i1")) {
+    await test("r14.v26i1.tomorrow-line-and-thaw", async () => {
+      const page = await freshPage(browser);
+      // Pin TESTMODE to Wednesday 2026-10-21 so tomorrow (Thu 10-22) is a
+      // normal planned day. On the real today (a Friday) tomorrow is
+      // Shabbos, when the block correctly never renders.
+      await page.evaluate(() => { try { localStorage.setItem("steady.testmode", JSON.stringify({ fake: "2026-10-21", lastSeen: Date.now() })); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
+      // Pick, from the data itself, one Thursday dinner that needs a freezer
+      // thaw and one that doesn't. The thaw computation is the week's plan
+      // as made from its prep day (ctx.today before the week — see the
+      // item-1 note on the board): prep() re-bases to today for a current
+      // week, which would hide a Sunday-frozen portion's thaw entirely.
+      const pick = await page.evaluate(() => {
+        const wk = "2026-10-18", base = planCtx(wk);
+        const ctx = Object.assign({}, base, { today: "2026-10-17" });
+        function thawsFor(meal) {
+          const cells = { pro: [meal.p], m4D: { id: meal.id } };
+          return PLAN_ENGINE.prep(ctx, cells, getSetting("prepDay")).midweek.thaws.filter((t) => t.dow === 4);
+        }
+        let frozen = null, fresh = null;
+        for (const m of Object.values(PLAN_DATA.MEALS)) {
+          if ((m.s || "").indexOf("D") < 0) continue;
+          const th = thawsFor(m);
+          if (th.length && !frozen) frozen = { id: m.id, p: m.p, n: m.n };
+          if (!th.length && !fresh) fresh = { id: m.id, p: m.p, n: m.n };
+          if (frozen && fresh) break;
+        }
+        return { frozen, fresh };
+      });
+      assert(pick.frozen, "test data should contain a dinner needing a Thursday thaw");
+      assert(pick.fresh, "test data should contain a dinner with no Thursday thaw");
+      const seed = async (meal) => {
+        await page.evaluate((fz) => {
+          const wk = "2026-10-18";
+          const lunch = Object.values(PLAN_DATA.MEALS).find((m) => (m.s || "").indexOf("L") >= 0);
+          state.plans[wk] = { f: { pro: { v: [lunch.p, fz.p], ts: 1 } } };
+          state.plans[wk].f.m3L = { v: { id: lunch.id }, ts: 1 };
+          state.plans[wk].f.m4D = { v: { id: fz.id }, ts: 1 };
+          saveLocal(); ui.tab = "today"; saveUi(); render(true);
+        }, meal);
+        await wait(300);
+      };
+      const read = () => page.evaluate(() => {
+        const card = Array.from(document.querySelectorAll("section.card")).find((s) => { const h = s.querySelector("h3"); return h && h.textContent === "On the plan"; });
+        const tmr = card ? card.querySelector(".tmr") : null;
+        return { card: !!card, tmr: !!tmr, text: tmr ? tmr.textContent : "", thaw: !!(tmr && tmr.querySelector(".tmr-thaw")) };
+      });
+      await seed(pick.frozen);
+      let res = await read();
+      assert(res.card && res.tmr, "the Tomorrow block should render inside On the plan");
+      assert(res.text.indexOf(pick.frozen.n) >= 0, "tomorrow's dinner should show, got: " + res.text);
+      assert(res.thaw, "the thaw line should show when a freezer portion is due tomorrow");
+      assert(res.text.indexOf("Tonight:") >= 0, "the thaw line should read as a tonight action, got: " + res.text);
+      // Swap in the no-thaw dinner: block stays, thaw line goes.
+      await seed(pick.fresh);
+      res = await read();
+      assert(res.tmr && res.text.indexOf(pick.fresh.n) >= 0, "tomorrow's dinner should update after the swap");
+      assert(!res.thaw, "no thaw line when nothing needs thawing for tomorrow");
+      // Tomorrow = rest day (fake Friday 2026-10-23): no block at all.
+      await page.evaluate(() => { try { localStorage.setItem("steady.testmode", JSON.stringify({ fake: "2026-10-23", lastSeen: Date.now() })); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
+      await page.evaluate(() => {
+        const lunch = Object.values(PLAN_DATA.MEALS).find((m) => (m.s || "").indexOf("L") >= 0);
+        const wk = "2026-10-18";
+        state.plans[wk] = state.plans[wk] || { f: {} };
+        state.plans[wk].f.pro = { v: [lunch.p], ts: 1 };
+        state.plans[wk].f.m5L = { v: { id: lunch.id }, ts: 1 };
+        saveLocal(); ui.tab = "today"; saveUi(); render(true);
+      });
+      await wait(300);
+      res = await read();
+      assert(!res.tmr, "no Tomorrow block when tomorrow is a rest day");
+      // Clean up the fake so later sections see the real date.
+      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.close();
+    });
+  }
 } finally {
   await browser.close();
 }
