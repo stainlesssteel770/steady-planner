@@ -219,6 +219,19 @@
         if (r && r.meal) { used[r.meal.id] = true; if (!r.lo && handsOn(r.meal) >= longMinG) longCount++; }
       } else { delete out[s.key]; }
     });
+    /* Bug-fix batch item 4: slots() yields nothing on a rest day, so the seed
+       pass above never touches its cells — an unlocked leftover lunch there
+       is orphaned: invisible to slots/prep/shopping, but kept in the plan,
+       and it resurrects as a stale "Leftovers:" card if the day is later
+       un-marked. Drop it here, like every other unlocked cell. (Locked cells
+       and non-leftover cells are the user's pins and stay.) */
+    if (ctx.rest) {
+      for (var rd = 0; rd <= 5; rd++) {
+        if (!ctx.rest[rd]) continue;
+        var lk4 = "m" + rd + "L", lv4 = v[lk4];
+        if (lv4 && lv4.lo && !lv4.k) delete out[lk4];
+      }
+    }
     function prevDinnerProtein(dow) {
       for (var d = dow - 1; d >= 0; d--) {
         var cell = out["m" + d + "D"];

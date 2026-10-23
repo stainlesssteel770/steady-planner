@@ -174,6 +174,60 @@ try {
       await page.close();
     });
   }
+
+  /* ============ Item 4: rest day drops the orphaned leftover lunch ============ */
+  if (run("bf4")) {
+    await test("r14.bf4.rest-day-orphaned-leftover-lunch-dropped", async () => {
+      const fmtD = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+      const now = new Date();
+      const sun = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay() + 7);
+      const mon = new Date(sun.getFullYear(), sun.getMonth(), sun.getDate() + 1);
+      const sunS = fmtD(sun), monS = fmtD(mon);
+      const page = await freshPage(browser);
+      // Next week's plan: Sunday stew dinner (lo-capable), Monday leftover lunch.
+      await page.evaluate((wk) => {
+        state.plans[wk] = { f: {
+          pro: { v: ["stew", "chicken"], ts: 1000 },
+          m0D: { v: { id: "s1" }, ts: 1000 },
+          m1L: { v: { lo: 1 }, ts: 1000 }
+        } };
+        saveLocal();
+        ui.tab = "plan"; ui.planWs = wk; ui.planStep = "week"; saveUi(); render(true);
+      }, sunS);
+      await wait(300);
+      const weekText = () => page.evaluate(() => document.getElementById("main").textContent);
+      const before = await weekText();
+      assert(before.includes("Leftovers:"), "control: Monday should show the leftover card before the rest mark");
+      // Mark Monday a rest day (data level: the Settings control only targets
+      // the viewed date, which cannot be a future plan day).
+      await page.evaluate((mon) => {
+        state.days[mon] = { f: { restOverride: { v: "rest", ts: 1000 } } };
+        saveLocal(); render(true);
+      }, monS);
+      await wait(300);
+      const marked = await weekText();
+      assert(marked.includes("not planned here"), "Monday should render as a rest day");
+      // A rebuild must drop the orphaned cell (the plan must not keep it)...
+      await page.evaluate(() => document.querySelector('[data-act="shuffle-all"]').click());
+      await wait(300);
+      const kept = await page.evaluate((wk) => planCells(wk).m1L, sunS);
+      assert(!kept, "after a rebuild the orphaned leftover cell should be dropped, still kept: " + JSON.stringify(kept));
+      // ...so un-marking the day cannot resurrect a stale leftover card.
+      await page.evaluate((mon) => {
+        state.days[mon] = { f: { restOverride: { v: "normal", ts: 1000 } } };
+        saveLocal(); render(true);
+      }, monS);
+      await wait(300);
+      const monSection = await page.evaluate(() => {
+        const secs = Array.from(document.querySelectorAll("section.card"));
+        const s = secs.find((x) => { const h = x.querySelector(".day-head"); return h && h.textContent.indexOf("Monday") === 0; });
+        return s ? s.textContent : null;
+      });
+      assert(monSection !== null, "Monday's day section should render again after un-marking");
+      assert(!monSection.includes("Leftovers:"), "no 'Leftovers:' card should exist for Monday after the rest day is un-marked, got: " + monSection.slice(0, 300));
+      await page.close();
+    });
+  }
 } finally {
   await browser.close();
 }

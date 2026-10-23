@@ -1571,7 +1571,12 @@ document.addEventListener("click", function (ev) {
     var week3 = currentPlanWeek(), ctx3 = planCtx(week3);
     var cellsBef = planCells(week3);
     var gen = ENGINE.generate(ctx3, cellsBef, Math.random);
-    var keysA = Object.keys(gen), prevA = {};
+    /* Bug-fix batch item 4: union in the meal keys that existed before (the
+       buildWeek pattern) so cells generate() dropped — e.g. a rest day's
+       orphaned leftover lunch — are actually cleared, not silently kept. */
+    var keysA = Object.keys(gen).concat(Object.keys(cellsBef).filter(function (k) { return /^m\d[LD]$/.test(k); }));
+    keysA = keysA.filter(function (k, i) { return keysA.indexOf(k) === i; });
+    var prevA = {};
     keysA.forEach(function (k) { prevA[k] = cellsBef[k] === undefined ? null : cellsBef[k]; });
     writeCells(week3, gen, keysA);
     saveLocal(); statusAfterEdit(); render(true);
