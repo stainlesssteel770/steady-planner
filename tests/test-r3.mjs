@@ -206,7 +206,20 @@ try {
       assert(page, "needs b6 page");
       await gotoPlan(page, tw, "pro");
       await page.waitForSelector('[data-act="restore-cleared"]', { timeout: 5000 });
-      await page.click('[data-act="restore-cleared"]');
+      // DOM click (not a puppeteer coordinate click): the Restore button
+      // only renders after a re-render. Guard: visible and hit-testable —
+      // what document.elementFromPoint at its center returns (or a child).
+      const hitOk = await page.evaluate(() => {
+        const b = document.querySelector('[data-act="restore-cleared"]');
+        if (!b) return "missing";
+        const r = b.getBoundingClientRect();
+        if (r.width <= 0 || r.height <= 0) return "invisible";
+        const el = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+        if (el !== b && !b.contains(el)) return "covered:" + (el ? el.tagName : "none");
+        b.click();
+        return "ok";
+      });
+      assert(hitOk === "ok", "Restore button visible + hit-testable, got: " + hitOk);
       await wait(200);
       const res = await page.evaluate((w) => ({ has: planHasMeals(w) }), tw);
       assert(res.has, "restore should bring the meals back");

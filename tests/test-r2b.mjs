@@ -70,7 +70,22 @@ const onPro = await page.evaluate(() => {
 await sleep(400);
 const hasRestore = await page.evaluate(() => !!document.querySelector('button[data-act="restore-cleared"]'));
 check("Add1 'Restore last week's plan' shows on Proteins", hasRestore);
-await page.click('button[data-act="restore-cleared"]'); await sleep(400);
+check("Add1 'Restore last week's plan' shows on Proteins", hasRestore);
+// DOM click (not a puppeteer coordinate click): the Restore button only
+// renders after a re-render. Guard: it must be visible and hit-testable —
+// what document.elementFromPoint at its center returns (or a child of it).
+const hitOk = await page.evaluate(() => {
+  const b = document.querySelector('button[data-act="restore-cleared"]');
+  if (!b) return "missing";
+  const r = b.getBoundingClientRect();
+  if (r.width <= 0 || r.height <= 0) return "invisible";
+  const el = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+  if (el !== b && !b.contains(el)) return "covered:" + (el ? el.tagName : "none");
+  b.click();
+  return "ok";
+});
+check("Add1 Restore button visible + hit-testable", hitOk === "ok", hitOk);
+await sleep(400);
 cells = await planWeekCells(page, nextSun);
 const cardsAfter = await page.evaluate(() => document.querySelectorAll(".meal-card").length);
 check("Add1 restore brings meals back", Object.keys(cells).some(k => /^m\d[LD]$/.test(k)) && cardsAfter >= 2, "cells=" + Object.keys(cells).filter(k => /^m/.test(k)).join(",") + " cards=" + cardsAfter);
