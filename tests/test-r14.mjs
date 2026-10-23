@@ -228,6 +228,35 @@ try {
       await page.close();
     });
   }
+
+  /* ============ Item 5: broth split (pareve vegetable vs chicken) ============ */
+  if (run("bf5")) {
+    await test("r14.bf5.broth-split-by-meal-tag", async () => {
+      const page = await freshPage(browser);
+      const res = await page.evaluate(() => {
+        const fmtD = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+        const now = new Date();
+        const sun = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay() + 7);
+        const wk = fmtD(sun);
+        const ctx = { week: wk, today: wk, rest: {}, pre: {} };
+        const brothLines = (cells) => {
+          const shop = PLAN_ENGINE.shopping(ctx, cells);
+          const out = [];
+          shop.sections.forEach((sec) => sec.lines.forEach((l) => { if (/broth/i.test(l.name)) out.push(l.name); }));
+          return out;
+        };
+        return {
+          pareve: brothLines({ pro: ["legumes", "chicken"], m0D: { id: "l1", k: 1 } }),
+          meat: brothLines({ pro: ["stew", "chicken"], m0D: { id: "s2", k: 1 } })
+        };
+      });
+      assert(res.pareve.length === 1 && /vegetable/i.test(res.pareve[0]) && !/chicken/i.test(res.pareve[0]),
+        "pareve soup week should list only vegetable broth, got: " + JSON.stringify(res.pareve));
+      assert(res.meat.length === 1 && /chicken/i.test(res.meat[0]) && !/vegetable/i.test(res.meat[0]),
+        "meat soup week should list only chicken broth, got: " + JSON.stringify(res.meat));
+      await page.close();
+    });
+  }
 } finally {
   await browser.close();
 }
