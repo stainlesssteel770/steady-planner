@@ -726,6 +726,54 @@ try {
       await page.close();
     });
   }
+
+  /* ============ v25 item 4: sticky score strip (pure CSS) ============ */
+  if (run("v25i4")) {
+    await test("r14.v25i4.sticky-score-strip", async () => {
+      const page = await freshPage(browser);
+      // State-isolate like bf6/v25i3 (shared profile, TESTMODE leaks).
+      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
+      await page.evaluate(() => { ui.tab = "today"; saveUi(); render(true); });
+      await wait(300);
+      const res = await page.evaluate(() => {
+        const strip = document.querySelector(".score-strip");
+        const sc = scoreDay(todayStr);
+        return {
+          exists: !!strip,
+          pos: strip ? getComputedStyle(strip).position : null,
+          text: strip ? strip.textContent.trim() : null,
+          exp: sc ? sc.score + "/" + sc.of : null
+        };
+      });
+      assert(res.exists, "a score strip should render on Today");
+      assert(res.pos === "sticky", "the strip must be pure-CSS sticky (no scroll listeners), got position: " + res.pos);
+      assert(res.text && res.exp && res.text.indexOf(res.exp) === 0, "strip should lead with the live score '" + res.exp + "', got: " + JSON.stringify(res.text));
+      // Scroll: the strip pins to the top of the viewport.
+      await page.evaluate(() => window.scrollTo(0, 900));
+      await wait(350);
+      const pin = await page.evaluate(() => {
+        const strip = document.querySelector(".score-strip");
+        const r = strip ? strip.getBoundingClientRect() : null;
+        return { top: r ? r.top : null, bottom: r ? r.bottom : null };
+      });
+      assert(pin.top !== null && pin.top >= -1 && pin.top <= 2 && pin.bottom > 10, "after scrolling, the strip should be pinned at the viewport top, got: " + JSON.stringify(pin));
+      // Ticking updates the strip's number (it re-renders with the score).
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await wait(200);
+      const before = await page.evaluate(() => document.querySelector(".score-strip").textContent.trim());
+      await page.evaluate(() => { const b = document.querySelector('[data-act="tick"]:not([disabled])'); if (b) b.click(); });
+      await wait(350);
+      const after = await page.evaluate(() => {
+        const strip = document.querySelector(".score-strip");
+        const sc = scoreDay(todayStr);
+        return { text: strip ? strip.textContent.trim() : null, exp: sc ? sc.score + "/" + sc.of : null };
+      });
+      assert(after.text && after.text.indexOf(after.exp) === 0, "strip should reflect the score after a tick, got: " + JSON.stringify(after));
+      await page.close();
+    });
+  }
 } finally {
   await browser.close();
 }

@@ -62,6 +62,8 @@ h2 { font-size: 1.15rem; margin: 0.4em 0 0.5em; }
 h3 { font-size: 1.02rem; margin: 0.6em 0 0.3em; }
 /* v25 item 3: habit group labels (Food / Drinks / Body) */
 .habit-group { margin-top: 0; font-size: 0.82rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+/* v25 item 4: sticky score strip (pure CSS sticky; no JS scroll handling) */
+.score-strip { position: sticky; top: 0; z-index: 6; background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; margin: 10px 0 0; font-size: 0.9rem; text-align: center; }
 
 /* shell */
 .topbar {

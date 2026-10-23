@@ -505,6 +505,11 @@ function renderToday() {
   }
   if (sc.score === sc.of && sc.of > 0) h += '<div class="banner full">All ' + sc.of + '. That\'s a full day.</div>';
 
+  /* v25 item 4: sticky score strip — pure CSS position:sticky, no scroll
+     listener and no height toggling (the collapsing-header jank lesson).
+     It rebuilds with every render, so the number is always live. */
+  h += '<div class="score-strip"><b>' + sc.score + '/' + sc.of + '</b> · ' + (date === todayStr ? "Today" : esc(longDate(date))) + '</div>';
+
   /* v25 item 2: "On the plan" now renders directly above the habits
      section (it used to sit below all 10 habit rows). Block moved as-is. */
   var wk = weekSunday(date), cells = planCells(wk);
