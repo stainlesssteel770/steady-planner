@@ -447,8 +447,11 @@ function renderToday() {
     '<button class="nav-arrow" data-act="day-next" aria-label="Next day"' + (date >= todayStr ? " disabled" : "") + '>›</button></div>';
   if (rest) h += '<div class="rest-score">✦ no tracking today</div>';
   else {
-    h += '<div class="score-big">' + sc.score + ' <span class="score-of">/ ' + sc.of + '</span></div>' +
-      '<div class="score-label">habits' + (pre ? ' · <span>daytime only</span>' : "") + '</div>';
+    /* v25 item 1: compact hero — one summary line instead of the 3rem score.
+       Workouts + streak fold in from the old stats-line (removed). */
+    h += '<div class="score-line"><b>' + sc.score + '/' + sc.of + '</b> habits · <b>' + streakCount() + '</b> day streak · <b>' +
+      workoutsInWeek(date) + '/' + getSetting("workoutTarget") + '</b> workouts</div>' +
+      (pre ? '<div class="score-sub">daytime habits only</div>' : '');
   }
   // Week dots
   var sun = weekSunday(date), letters = ["S", "M", "T", "W", "T", "F", "Sh"];
@@ -465,7 +468,6 @@ function renderToday() {
       '<span class="dot-l"' + (d === todayStr ? ' style="color:var(--accent);font-weight:800"' : "") + '>' + letters[i] + '</span></div>';
   }
   h += '</div>';
-  h += '<div class="stats-line"><b>' + workoutsInWeek(date) + '/' + getSetting("workoutTarget") + '</b> workouts this week · <b>' + streakCount() + '</b> day streak</div>';
   h += '</section>';
 
   if (rest) {

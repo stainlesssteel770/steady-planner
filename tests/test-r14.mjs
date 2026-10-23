@@ -3,7 +3,9 @@
              bf3 (stale-save guard) | bf4 (rest-day leftovers) |
              bf5 (broth split) | bf6 (failed-save status) |
              bf7 (copy fixes) | bf8 (screen-reader labels) |
-             bf10 (calendar data) | bf11 (fast / Nine Days rules)
+             bf10 (calendar data) | bf11 (fast / Nine Days rules) |
+             v25i1 (compact Today hero) | v25i2 (On-the-plan above habits) |
+             v25i3 (habit group sections) | v25i4 (sticky score strip)
    Usage: node test-r14.mjs [section|all]   (WIDTH env, default 390) */
 import puppeteer from "puppeteer-core";
 
@@ -614,6 +616,42 @@ try {
       });
       assert(res.pB === true && res.pL === true && res.vL === true, "breakfast/lunch meal questions should be skipped on a minor fast, got: " + JSON.stringify(res));
       assert(res.pD === false && res.vD === false, "the dinner (break-fast) questions should stay live, got: " + JSON.stringify(res));
+      await page.close();
+    });
+  }
+
+  /* ============ v25 item 1: compact Today hero ============ */
+  if (run("v25i1")) {
+    await test("r14.v25i1.compact-hero-summary-row", async () => {
+      const page = await freshPage(browser);
+      await page.evaluate(() => { ui.tab = "today"; saveUi(); render(true); });
+      await wait(300);
+      const res = await page.evaluate(() => {
+        const hero = document.querySelector("section.card.hero");
+        const line = document.querySelector(".score-line");
+        const sc = scoreDay(todayStr);
+        return {
+          noBig: !document.querySelector(".score-big"),
+          lineText: line ? line.textContent : null,
+          lineFontPx: line ? parseFloat(getComputedStyle(line).fontSize) : null,
+          heroH: hero ? hero.getBoundingClientRect().height : null,
+          dots: document.querySelectorAll(".weekdots .dotwrap").length,
+          dotsMarginTop: document.querySelector(".weekdots") ? getComputedStyle(document.querySelector(".weekdots")).marginTop : null,
+          noStatsLine: !document.querySelector(".stats-line"),
+          exp: sc.score + "/" + sc.of + " habits",
+          expStreak: String(streakCount()) + " day streak",
+          expWo: workoutsInWeek(todayStr) + "/" + getSetting("workoutTarget") + " workouts"
+        };
+      });
+      assert(res.noBig, "the 3rem .score-big hero should be gone");
+      assert(res.lineFontPx !== null && res.lineFontPx <= 18, "summary line should be body-size, not the 3rem score, got " + res.lineFontPx + "px");
+      assert(res.lineText && res.lineText.indexOf(res.exp) !== -1, "summary line should show '" + res.exp + "', got: " + JSON.stringify(res.lineText));
+      assert(res.lineText.indexOf(res.expStreak) !== -1, "summary line should show '" + res.expStreak + "', got: " + JSON.stringify(res.lineText));
+      assert(res.lineText.indexOf(res.expWo) !== -1, "summary line should show '" + res.expWo + "', got: " + JSON.stringify(res.lineText));
+      assert(res.noStatsLine, "the old .stats-line should be folded into the summary line");
+      assert(res.heroH !== null && res.heroH < 245, "hero should be compact (was ~280px before), got " + res.heroH);
+      assert(res.dots === 7, "week dots should still render, got " + res.dots);
+      assert(res.dotsMarginTop !== "14px", "week dots margins should be tightened, marginTop=" + res.dotsMarginTop);
       await page.close();
     });
   }

@@ -122,11 +122,12 @@ main {
 .daynav .nav-arrow:disabled { opacity: 0.35; }
 .day-title { font-size: 1.25rem; font-weight: 700; }
 .day-sub { color: var(--muted); font-size: 0.9rem; }
-.score-big { font-size: 3rem; font-weight: 800; line-height: 1.05; margin-top: 6px; }
-.score-of { color: var(--muted); font-size: 1.1rem; font-weight: 600; }
-.score-label { color: var(--muted); }
+/* v25 item 1: compact hero — one summary line replaces the 3rem score. */
+.score-line { font-size: 1rem; margin-top: 8px; }
+.score-line b { font-weight: 800; }
+.score-sub { color: var(--muted); font-size: 0.85rem; margin-top: 2px; }
 .rest-score { color: var(--rest); font-size: 1.5rem; font-weight: 700; margin-top: 8px; }
-.weekdots { display: flex; justify-content: space-between; margin: 14px 2px 6px; }
+.weekdots { display: flex; justify-content: space-between; margin: 8px 2px 6px; }
 .dot {
   width: 44px; height: 44px; border-radius: 50%; border: 2px solid var(--line);
   background: var(--card); display: flex; align-items: center; justify-content: center;
@@ -163,8 +164,6 @@ main {
 }
 .dot.future { opacity: 0.45; }
 .dotwrap { display: flex; flex-direction: column; align-items: center; gap: 3px; }
-.stats-line { color: var(--muted); font-size: 0.92rem; margin-top: 8px; }
-.stats-line b { color: var(--ink); }
 
 /* habits */
 .habit { display: flex; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
