@@ -688,6 +688,44 @@ try {
       await page.close();
     });
   }
+
+  /* ============ v25 item 3: habits grouped Food / Drinks / Body ============ */
+  if (run("v25i3")) {
+    await test("r14.v25i3.habit-groups", async () => {
+      const page = await freshPage(browser);
+      // Shared profile: an earlier section may leave a TESTMODE fake (e.g. a
+      // fast day, which disables proteinB). Clear it and reload for the real
+      // date before asserting tick behavior.
+      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
+      await page.evaluate(() => { ui.tab = "today"; saveUi(); render(true); });
+      await wait(300);
+      const res = await page.evaluate(() => {
+        const groups = Array.from(document.querySelectorAll(".habit-group")).map((el) => el.textContent.trim());
+        const sections = Array.from(document.querySelectorAll("section.card")).filter((s) => s.querySelector(".habit-group"));
+        const contents = sections.map((s) => Array.from(s.querySelectorAll(".habit-title")).map((t) => t.textContent.trim()));
+        const nums = Array.from(document.querySelectorAll(".habit-num")).map((n) => n.textContent.trim());
+        return { groups, contents, nums, habitRows: document.querySelectorAll(".habit").length };
+      });
+      assert(JSON.stringify(res.groups) === JSON.stringify(["Food", "Drinks", "Body"]), "three group headers in order, got: " + JSON.stringify(res.groups));
+      assert(res.contents[0] && res.contents[0][0] === "Protein at every meal" && res.contents[0].length === 5, "Food holds the five food habits, got: " + JSON.stringify(res.contents[0]));
+      assert(res.contents[1] && res.contents[1].length === 2, "Drinks holds two habits, got: " + JSON.stringify(res.contents[1]));
+      assert(res.contents[2] && res.contents[2].length === 3, "Body holds three habits, got: " + JSON.stringify(res.contents[2]));
+      assert(res.habitRows === 10, "all 10 habit rows render, got " + res.habitRows);
+      assert(JSON.stringify(res.nums) === JSON.stringify(["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]), "numbering runs 1-10 across the groups, got: " + JSON.stringify(res.nums));
+      // One tick per group still works end-to-end. (Assert each flag FLIPS:
+      // the shared profile may legitimately start with a tick already on.)
+      const before = await page.evaluate(() => ({ p: !!getDayF(todayStr, "proteinB"), d: !!getDayF(todayStr, "drinks"), w: !!getDayF(todayStr, "workoutOff") }));
+      await page.evaluate(() => document.querySelector('[data-act="tick"][data-f="proteinB"]').click());
+      await page.evaluate(() => document.querySelector('[data-act="tick"][data-f="drinks"]').click());
+      await page.evaluate(() => document.querySelector('[data-act="tick"][data-f="workoutOff"]').click());
+      await wait(300);
+      const flags = await page.evaluate(() => ({ p: !!getDayF(todayStr, "proteinB"), d: !!getDayF(todayStr, "drinks"), w: !!getDayF(todayStr, "workoutOff") }));
+      assert(flags.p === !before.p && flags.d === !before.d && flags.w === !before.w, "ticks in all three groups should toggle, before: " + JSON.stringify(before) + " after: " + JSON.stringify(flags));
+      await page.close();
+    });
+  }
 } finally {
   await browser.close();
 }

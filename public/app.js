@@ -518,8 +518,18 @@ function renderToday() {
   }
 
   // Habits (extra counters for #3/#7: see the global EXTRAS map)
-  h += '<section class="card">';
+  /* v25 item 3: the 10 habits render in three labeled groups — Food,
+     Drinks, Body. Numbering (global idx), ticks, extras and scoring are
+     unchanged; only the visual grouping is new. */
+  var HABIT_GROUPS = [
+    { label: "Food", ids: ["protein", "veg", "mealsPlan", "treat", "kitchenClosed"] },
+    { label: "Drinks", ids: ["drinks", "noAlcohol"] },
+    { label: "Body", ids: ["steps", "workout", "bed"] }
+  ];
+  HABIT_GROUPS.forEach(function (grp) {
+  h += '<section class="card"><h3 class="habit-group">' + grp.label + '</h3>';
   STEADY.habits.forEach(function (hab, idx) {
+    if (grp.ids.indexOf(hab.id) < 0) return;
     var greyed = pre && hab.evening;
     h += '<div class="habit' + (hab.good ? " good" : "") + (greyed ? " greyed" : "") + '">' +
       '<div class="habit-num">' + (idx + 1) + '</div><div class="habit-body">' +
@@ -568,6 +578,7 @@ function renderToday() {
     h += '<div class="done-dot">' + (done ? "✓" : "") + '</div></div>';
   });
   h += '</section>';
+  });
 
   // Prep day card
   if (date === todayStr && dowOf(date) === getSetting("prepDay") && dowOf(date) <= 5) {
