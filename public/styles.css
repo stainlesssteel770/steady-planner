@@ -68,6 +68,13 @@ h3 { font-size: 1.02rem; margin: 0.6em 0 0.3em; }
 .tmr { border-top: 1px dashed var(--line); margin-top: 10px; padding-top: 8px; }
 .tmr h4 { margin: 0 0 4px; font-size: 0.95rem; }
 .tmr-thaw { font-weight: 600; }
+/* v26 item 2: tappable meal lines + recipe expansion on Today */
+.meal-line-row { margin: 6px 0; }
+.meal-line { display: block; width: 100%; text-align: left; background: none; border: none; padding: 2px 0; font: inherit; color: inherit; cursor: pointer; }
+.ml-caret { color: var(--muted); }
+.meal-detail { margin: 2px 0 10px; }
+.meal-ings { margin: 6px 0 0; padding-left: 18px; }
+.meal-ings li { margin: 2px 0; }
 
 /* shell */
 .topbar {

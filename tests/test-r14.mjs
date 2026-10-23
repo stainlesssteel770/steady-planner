@@ -857,6 +857,65 @@ try {
       await page.close();
     });
   }
+
+  /* ============ v26 item 2: tap a meal on Today -> recipe/ingredients ============ */
+  if (run("v26i2")) {
+    await test("r14.v26i2.today-meal-accordion", async () => {
+      const page = await freshPage(browser);
+      // State-isolate like bf6/v25i3 (shared profile, TESTMODE leaks).
+      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
+      // Seed today's lunch + dinner from the data (meals with a method and
+      // at least two resolvable ingredients).
+      const seedInfo = await page.evaluate(() => {
+        const wk = weekSunday(todayStr), dow = dowOf(todayStr);
+        const pickFor = (slot) => Object.values(PLAN_DATA.MEALS).find((m) => (m.s || "").indexOf(slot) >= 0 && m.how && (m.ing || []).filter((p) => PLAN_DATA.ITEMS[p[0]]).length >= 2);
+        const lunch = pickFor("L"), dinner = pickFor("D");
+        state.plans[wk] = { f: { pro: { v: [lunch.p, dinner.p], ts: 1 } } };
+        state.plans[wk].f["m" + dow + "L"] = { v: { id: lunch.id }, ts: 1 };
+        state.plans[wk].f["m" + dow + "D"] = { v: { id: dinner.id }, ts: 1 };
+        saveLocal(); ui.tab = "today"; saveUi(); render(true);
+        return {
+          lk: "m" + dow + "L", dk: "m" + dow + "D",
+          dHow: dinner.how, dIng: PLAN_DATA.ITEMS[dinner.ing[0][0]][0],
+          lHow: lunch.how
+        };
+      });
+      await wait(300);
+      const state1 = () => page.evaluate(() => {
+        const card = Array.from(document.querySelectorAll("section.card")).find((s) => { const h = s.querySelector("h3"); return h && h.textContent === "On the plan"; });
+        const det = card ? card.querySelector(".meal-detail") : null;
+        return {
+          btns: card ? card.querySelectorAll('[data-act="today-meal"]').length : 0,
+          detail: !!det,
+          detailText: det ? det.textContent : ""
+        };
+      });
+      let st = await state1();
+      assert(st.btns === 2, "both of today's meal lines should be tappable buttons, got: " + st.btns);
+      assert(!st.detail, "no recipe should be expanded before any tap");
+      // Tap dinner (real DOM click on the button).
+      await page.evaluate((k) => document.querySelector('[data-act="today-meal"][data-k="' + k + '"]').click(), seedInfo.dk);
+      await wait(300);
+      st = await state1();
+      assert(st.detail, "tapping dinner should expand its recipe");
+      assert(st.detailText.indexOf(seedInfo.dHow.slice(0, 24)) >= 0, "the expansion should show the meal's method, got: " + st.detailText.slice(0, 120));
+      assert(st.detailText.indexOf(seedInfo.dIng) >= 0, "the expansion should list ingredient names (first: " + seedInfo.dIng + "), got: " + st.detailText.slice(0, 200));
+      // Tap lunch: dinner closes, lunch opens (one at a time).
+      await page.evaluate((k) => document.querySelector('[data-act="today-meal"][data-k="' + k + '"]').click(), seedInfo.lk);
+      await wait(300);
+      st = await state1();
+      assert(st.detail && st.detailText.indexOf(seedInfo.lHow.slice(0, 24)) >= 0, "tapping lunch should open lunch's recipe");
+      assert(st.detailText.indexOf(seedInfo.dHow.slice(0, 24)) < 0, "dinner's recipe should be closed once lunch opens");
+      // Tap lunch again: collapses.
+      await page.evaluate((k) => document.querySelector('[data-act="today-meal"][data-k="' + k + '"]').click(), seedInfo.lk);
+      await wait(300);
+      st = await state1();
+      assert(!st.detail, "tapping the open meal again should collapse it");
+      await page.close();
+    });
+  }
 } finally {
   await browser.close();
 }

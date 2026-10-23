@@ -517,8 +517,22 @@ function renderToday() {
   if (planGuard || date === todayStr) {
     var ctx = planCtx(wk), lines = "";
     ["L", "D"].forEach(function (sl) {
-      var r = ENGINE.resolve(ctx, cells, "m" + dowOf(date) + sl);
-      if (r && r.meal) lines += '<p><b>' + (sl === "L" ? "Lunch" : "Dinner") + ':</b> ' + (r.lo ? "Leftovers: " : "") + esc(r.meal.n) + '</p>';
+      var key = "m" + dowOf(date) + sl;
+      var r = ENGINE.resolve(ctx, cells, key);
+      if (r && r.meal) {
+        /* v26 item 2: today's meal lines are tappable — tapping expands
+           the recipe (method + ingredients) inline, accordion-style.
+           Open state is a ui-only key scoped to the date; one at a time. */
+        var open = ui.todayMealOpen === date + ":" + key;
+        lines += '<p class="meal-line-row"><button class="meal-line" data-act="today-meal" data-k="' + key + '" aria-expanded="' + open + '"><b>' + (sl === "L" ? "Lunch" : "Dinner") + ':</b> ' + (r.lo ? "Leftovers: " : "") + esc(r.meal.n) + ' <span class="ml-caret" aria-hidden="true">' + (open ? "▾" : "▸") + '</span></button></p>';
+        if (open) {
+          var srv = ENGINE.servingsOf(cells)[sl];
+          lines += '<div class="meal-detail"><div class="meal-how">' + (r.lo ? "Second portion of last night's dinner, packed on the night." : esc(r.meal.how)) + '</div>';
+          var ings = (r.meal.ing || []).filter(function (pair) { return PD.ITEMS[pair[0]]; });
+          if (ings.length) lines += '<ul class="meal-ings">' + ings.map(function (pair) { var q = ENGINE.qtyText(pair[0], pair[1] * srv); return '<li>' + esc(PD.ITEMS[pair[0]][0]) + (q ? ' — ' + esc(q) : "") + '</li>'; }).join("") + '</ul>';
+          lines += '</div>';
+        }
+      }
     });
     /* v26 item 1: Tomorrow block — tomorrow's lunch/dinner plus a
        "tonight" thaw line, shown only when the displayed day is today.
@@ -1561,6 +1575,7 @@ document.addEventListener("click", function (ev) {
   if (act === "retry-save") { saveLocal(); statusAfterEdit(); return; }
   if (act === "goto-workout") { gotoTab("workout"); return; }
   if (act === "goto-plan-week") { ui.planWs = weekSunday(selDate); gotoTab("plan", "week"); return; }
+  if (act === "today-meal") { var mk = el.getAttribute("data-k"), tag = selDate + ":" + mk; ui.todayMealOpen = ui.todayMealOpen === tag ? null : tag; saveUi(); render(true); return; }
   if (act === "goto-plan-prep") { gotoTab("plan", "prep"); return; }
   if (act === "goto-plan-pro") { gotoTab("plan", "pro"); return; }
   if (act === "shabbos-tips") { gotoTab("meals"); setTimeout(function () { var c = document.getElementById("shabbosCard"); if (c) c.scrollIntoView({ behavior: "smooth" }); }, 60); return; }
