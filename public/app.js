@@ -790,7 +790,9 @@ function planProHTML(week, cells, ctx, pros) {
     h += '<section class="card"><p class="muted small" style="margin-top:0">Week of ' + shortDate(week) + ' · cleared ' + esc(clearedWhenText(lcP.at)) + '</p>' +
       '<button class="btn primary big" data-act="restore-cleared">Restore last week\'s plan</button></section>';
   }
-  h += '<section class="card"><h3>Pick this week\'s proteins</h3><div class="pgrid">';
+  /* Bug-fix batch item 7: the header must name the week actually selected
+     (it said "this week" even with Next week selected). */
+  h += '<section class="card"><h3>Pick ' + (week > weekSunday(todayStr) ? "next" : "this") + ' week\'s proteins</h3><div class="pgrid">';
   PD.PROTEINS.forEach(function (p) {
     var picked = pros.indexOf(p[0]) >= 0;
     var dis = !picked && pros.length >= 4;

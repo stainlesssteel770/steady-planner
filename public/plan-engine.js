@@ -534,7 +534,15 @@
     var whole = /egg|oz|pepper|cucumber|sweet potato|block/.test(c.u);
     var val = whole ? Math.max(1, Math.round(amount)) : Math.round(amount * 4) / 4;
     var txt = whole ? String(val) : frac(val);
-    return txt + " " + c.u;
+    var u = c.u;
+    /* Bug-fix batch item 7: units are stored plural, but an amount of 1 or
+       less takes the singular ("1 cucumbers" / "¼ cups dry" read wrong).
+       "sweet potatoes" is the one unit whose plural sits on the last word. */
+    if (val <= 1) {
+      if (u.indexOf("sweet potatoes") === 0) u = "sweet potato" + u.slice("sweet potatoes".length);
+      else u = u.replace(/^\S+/, function (w) { return /s$/.test(w) ? w.slice(0, -1) : w; });
+    }
+    return txt + " " + u;
   }
   function keepText(c, frozenLater) {
     if (c.raw) return "raw: 1–2 days fridge, or freeze";

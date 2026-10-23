@@ -285,6 +285,62 @@ try {
       await page.close();
     });
   }
+
+  /* ============ Item 7: copy fixes ============ */
+  if (run("bf7")) {
+    const prepAmounts = async (page, cells) => page.evaluate((cellsIn) => {
+      const fmtD = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+      const now = new Date();
+      const sun = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay() + 7);
+      const wk = fmtD(sun);
+      const ctx = { week: wk, today: wk, rest: {}, pre: {} };
+      const prep = PLAN_ENGINE.prep(ctx, cellsIn, 0);
+      const out = {};
+      prep.steps.forEach((s) => { out[s.id] = s.amount; });
+      return out;
+    }, cells);
+
+    await test("r14.bf7a.count-one-unit-is-singular", async () => {
+      const page = await freshPage(browser);
+      const amounts = await prepAmounts(page, { pro: ["chicken", "stew"], m1D: { id: "c5", k: 1 } });
+      assert(amounts.chopveg && amounts.chopveg.indexOf("1 cucumber") === 0 && !/cucumbers/.test(amounts.chopveg),
+        "amount for 1 cucumber should be singular, got: '" + amounts.chopveg + "'");
+      await page.close();
+    });
+
+    await test("r14.bf7b.fractional-unit-is-singular", async () => {
+      const page = await freshPage(browser);
+      const amounts = await prepAmounts(page, { pro: ["gbeef", "chicken"], m1D: { id: "b4", k: 1 } });
+      assert(amounts.rice === "¼ cup dry", "amount for a quarter cup of rice should read '¼ cup dry', got: '" + amounts.rice + "'");
+      await page.close();
+    });
+
+    await test("r14.bf7c.salmon-note-names-no-last-night", async () => {
+      const page = await freshPage(browser);
+      const how = await page.evaluate(() => PLAN_DATA.MEALS.sa4.how);
+      assert(!/last night/i.test(how), "sa4's note must not presume last night's salmon, got: '" + how + "'");
+      assert(/salmon/i.test(how), "sa4's note should still be about salmon, got: '" + how + "'");
+      await page.close();
+    });
+
+    await test("r14.bf7d.proteins-header-matches-selected-week", async () => {
+      const page = await freshPage(browser);
+      const res = await page.evaluate(() => {
+        const fmtD = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+        const now = new Date();
+        const cur = fmtD(new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay()));
+        const nxt = fmtD(new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay() + 7));
+        const head = () => { const hs = Array.from(document.querySelectorAll("#main h3")); const h = hs.find((x) => /proteins/i.test(x.textContent)); return h ? h.textContent : ""; };
+        ui.tab = "plan"; ui.planStep = "pro"; ui.planWs = nxt; saveUi(); render(true);
+        const nextHead = head();
+        ui.planWs = cur; saveUi(); render(true);
+        return { nextHead, curHead: head() };
+      });
+      assert(/next week's proteins/i.test(res.nextHead), "with Next week selected the header should say next week's proteins, got: '" + res.nextHead + "'");
+      assert(/this week's proteins/i.test(res.curHead), "with This week selected the header should say this week's proteins, got: '" + res.curHead + "'");
+      await page.close();
+    });
+  }
 } finally {
   await browser.close();
 }
