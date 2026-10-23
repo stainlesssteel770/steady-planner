@@ -78,10 +78,15 @@
     var v = cellVals(cells), out = [];
     for (var d = 0; d <= 5; d++) {
       if (ctx.rest && ctx.rest[d]) continue;
+      /* Bug-fix batch item 11: Tisha B'Av has no meal slots at all; a minor
+         fast day has no lunch slot (its dinner is the break-fast). Erev Yom
+         Kippur keeps a dinner slot despite being pre-rest — that dinner is
+         the pre-fast meal. */
+      if (ctx.tisha && ctx.tisha[d]) continue;
       var date = addDays(ctx.week, d);
       var past = ctx.today ? date < ctx.today : false;
-      if (d < 5 || v.on5L !== false) out.push({ dow: d, slot: "L", key: "m" + d + "L", date: date, past: past });
-      var dinner = d === 5 ? v.on5D === true : !(ctx.pre && ctx.pre[d]);
+      if (!(ctx.fast && ctx.fast[d]) && (d < 5 || v.on5L !== false)) out.push({ dow: d, slot: "L", key: "m" + d + "L", date: date, past: past });
+      var dinner = d === 5 ? v.on5D === true : !(ctx.pre && ctx.pre[d]) || !!(ctx.erevYK && ctx.erevYK[d]);
       if (dinner) out.push({ dow: d, slot: "D", key: "m" + d + "D", date: date, past: past });
     }
     return out;
@@ -149,6 +154,8 @@
     var pair = breakfastPair(cells), out = [], idx = 0;
     for (var d = 0; d <= 5; d++) {
       if (ctx.rest && ctx.rest[d]) continue;
+      /* Bug-fix batch item 11: no breakfast is planned on a fast day. */
+      if ((ctx.fast && ctx.fast[d]) || (ctx.tisha && ctx.tisha[d])) continue;
       var date = addDays(ctx.week, d);
       var id = pair[idx % 2]; idx++;
       out.push({ dow: d, date: date, bkId: id, bk: BK[id], past: ctx.today ? date < ctx.today : false });
@@ -232,6 +239,18 @@
         if (lv4 && lv4.lo && !lv4.k) delete out[lk4];
       }
     }
+    /* Bug-fix batch item 11: same orphan class on fast days — slots() yields
+       no lunch there (and nothing at all on Tisha B'Av), so unlocked cells
+       on those days are dropped too. Locked cells stay. */
+    for (var fd = 0; fd <= 5; fd++) {
+      var fl = v["m" + fd + "L"];
+      if (ctx.fast && ctx.fast[fd] && fl && !fl.k) delete out["m" + fd + "L"];
+      if (ctx.tisha && ctx.tisha[fd]) {
+        if (fl && !fl.k) delete out["m" + fd + "L"];
+        var fdn = v["m" + fd + "D"];
+        if (fdn && !fdn.k) delete out["m" + fd + "D"];
+      }
+    }
     function prevDinnerProtein(dow) {
       for (var d = dow - 1; d >= 0; d--) {
         var cell = out["m" + d + "D"];
@@ -251,12 +270,26 @@
           var p = proteinOrder[pi];
           var list = candidates([p], slotLetter, used, longCount, relaxLevels[lvl][0], relaxLevels[lvl][1], longMinG);
           if (opts.excludeTag) {
-            var nonTag = list.filter(function (mm) { return mm.t !== opts.excludeTag; });
+            /* Bug-fix batch item 11: excludeTag may be a list (a day can carry
+               two hard exclusions at once, e.g. fast-day no-meat plus the
+               locked-lunch dairy block). */
+            var exT = [].concat(opts.excludeTag);
+            var nonTag = list.filter(function (mm) { return exT.indexOf(mm.t) < 0; });
             if (opts.excludeTagHard || nonTag.length) list = nonTag;
           }
           if (opts.preferNotFresh) {
             var nf = list.filter(function (mm) { return !mm.fresh; });
             if (nf.length) list = nf;
+          }
+          /* Bug-fix batch item 11: light/hearty preference, same
+             filter-with-fallback shape as preferNotFresh. */
+          if (opts.preferLight) {
+            var lt = list.filter(function (mm) { return mm.light; });
+            if (lt.length) list = lt;
+          }
+          if (opts.preferHearty) {
+            var hv = list.filter(function (mm) { return !mm.light; });
+            if (hv.length) list = hv;
           }
           if (list.length) return pickFrom(list, rand);
         }
@@ -289,6 +322,18 @@
       if (luR && luR.locked && luR.meal && !mdGapOn && pickerBlocked("D", "D", luR.meal.t)) {
         dopts = { excludeTag: "D", excludeTagHard: true };
       }
+      /* Bug-fix batch item 11: day rules compose into the same options.
+         Minor fast: the break-fast dinner is never meat, light preferred.
+         Nine Days: no meat. Erev Yom Kippur: the pre-fast dinner prefers
+         hearty (non-light) meals. */
+      var exD = dopts.excludeTag ? [].concat(dopts.excludeTag) : [];
+      if ((ctx.fast && ctx.fast[s.dow]) || (ctx.nine && ctx.nine[s.dow])) {
+        if (exD.indexOf("M") < 0) exD.push("M");
+        dopts.excludeTagHard = true;
+      }
+      if (exD.length) dopts.excludeTag = exD;
+      if (ctx.fast && ctx.fast[s.dow]) dopts.preferLight = true;
+      if (ctx.erevYK && ctx.erevYK[s.dow]) dopts.preferHearty = true;
       var meal = chooseMeal("D", order, dopts);
       if (meal) {
         out[s.key] = { id: meal.id };
@@ -320,6 +365,8 @@
       var prevMeal = prevD && prevD.id ? MEALS[prevD.id] : null;
       var wantLo = v.lo !== false && d >= 1 && prevD && !prevD.lo && prevMeal && prevMeal.lo &&
         !(tonightMeal && tonightMeal.t === "D" && prevMeal.t === "M" && !mdGapOn) &&
+        /* Bug-fix batch item 11: no meat leftovers inside the Nine Days. */
+        !(ctx.nine && ctx.nine[d] && prevMeal.t === "M") &&
         (d % 2 === 1 || (!leftoverPlaced && d >= 2));
       if (wantLo) { out[s.key] = { lo: 1 }; leftoverPlaced = true; return; }
       var avoid = {};
@@ -335,6 +382,9 @@
         excludeTagHard: dairyDinner,
         preferNotFresh: true
       };
+      /* Bug-fix batch item 11: inside the Nine Days a lunch is never meat
+         either (hard, like the dinner rule). */
+      if (ctx.nine && ctx.nine[d]) { lopts.excludeTag = "M"; lopts.excludeTagHard = true; }
       /* Beta batch 3 item 1: widen BEFORE repeating. The avoid-filtered
          order can be thin (salmon has 2 lunches); when all its lunches are
          used, the old code relaxed straight to a repeat without retrying
@@ -385,6 +435,11 @@
         var nonB = list.filter(function (mm) { return !pickerBlocked(mm.t, "L", tonightMeal.t); });
         if (nonB.length) list = nonB;
       }
+      /* Bug-fix batch item 11: a replacement lunch inside the Nine Days is
+         never meat (hard — an empty pool just leaves the cell empty). */
+      if (ctx.nine && ctx.nine[dow]) {
+        list = list.filter(function (mm) { return mm.t !== "M"; });
+      }
       var nf = list.filter(function (mm) { return !mm.fresh; });
       if (nf.length) list = nf;
       if (list.length) return pickFrom(list, rand);
@@ -431,6 +486,23 @@
         if (!okD.length && all.length) noFit = true;
         all = okD;
       }
+    }
+    /* Bug-fix batch item 11: the same day rules as generate() — no meat in
+       the Nine Days, a fast day's break-fast dinner is never meat and
+       prefers light, the Erev Yom Kippur dinner prefers hearty. */
+    var dowS = +key.charAt(1);
+    if ((ctx.nine && ctx.nine[dowS]) || (slotLetter === "D" && ctx.fast && ctx.fast[dowS])) {
+      var okN = all.filter(function (mm) { return mm.t !== "M"; });
+      if (!okN.length && all.length) noFit = true;
+      all = okN;
+    }
+    if (slotLetter === "D" && ctx.fast && ctx.fast[dowS]) {
+      var ltS = all.filter(function (mm) { return mm.light; });
+      if (ltS.length) all = ltS;
+    }
+    if (slotLetter === "D" && ctx.erevYK && ctx.erevYK[dowS]) {
+      var hvS = all.filter(function (mm) { return !mm.light; });
+      if (hvS.length) all = hvS;
     }
     var unused = all.filter(function (mm) { return !used[mm.id]; });
     var pool = unused.length ? unused : all;

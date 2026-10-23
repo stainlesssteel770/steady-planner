@@ -111,6 +111,11 @@ function weekSunday(s) { return addDays(s, -dowOf(s)); }
 
 /* ---------------- calendar / rest days ---------------- */
 var YOMTOV = {};
+/* Bug-fix batch item 11: fast-day calendar maps, filled by loadCalendar()
+   from the same calendar.json (kinds "fast" / "tishabav" + nineDays list). */
+var FASTS = {}, TISHABAV = {}, NINEDAYS = {};
+function isFastDay(date) { return !!FASTS[date]; }
+function isTishaBav(date) { return !!TISHABAV[date]; }
 function prettifyName(name) {
   var n = String(name);
   n = n.replace(/Sukkot/g, "Sukkos").replace(/Shmini Atzeret/g, "Shemini Atzeres")
@@ -120,7 +125,12 @@ function prettifyName(name) {
 }
 function loadCalendar() {
   return fetch("calendar.json").then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
-    if (j && j.events) j.events.forEach(function (e) { if (e.k === "yomtov") YOMTOV[e.d] = e.t; });
+    if (j && j.events) j.events.forEach(function (e) {
+      if (e.k === "yomtov") YOMTOV[e.d] = e.t;
+      else if (e.k === "fast") FASTS[e.d] = e.t;
+      else if (e.k === "tishabav") TISHABAV[e.d] = e.t;
+    });
+    if (j && j.nineDays) j.nineDays.forEach(function (d) { NINEDAYS[d] = true; });
   }).catch(function () {});
 }
 function dayDoc(date) { return state.days[date] || { f: {} }; }
@@ -142,7 +152,18 @@ function planCtx(week) {
   /* Bug-fix batch item 2: hand the engine the week's Yom Tov dates so the
      midweek top-up can walk off them. */
   for (var d3 = 0; d3 <= 5; d3++) { var dt = addDays(week, d3); if (YOMTOV[dt]) yt[dt] = true; }
-  return { week: week, today: todayStr, rest: rest, pre: pre, yomtov: yt };
+  /* Bug-fix batch item 11: hand the engine the week's fast days, Tisha
+     B'Av, Nine Days, and Erev Yom Kippur (the day before a "Yom Kippur"
+     Yom Tov date) so slots/generate can apply the fast-day rules. */
+  var fast = {}, tisha = {}, nine = {}, erevYK = {};
+  for (var d4 = 0; d4 <= 6; d4++) {
+    var dt4 = addDays(week, d4);
+    if (FASTS[dt4]) fast[d4] = FASTS[dt4];
+    if (TISHABAV[dt4]) tisha[d4] = true;
+    if (NINEDAYS[dt4]) nine[d4] = true;
+    if (YOMTOV[addDays(dt4, 1)] === "Yom Kippur") erevYK[d4] = true;
+  }
+  return { week: week, today: todayStr, rest: rest, pre: pre, yomtov: yt, fast: fast, tisha: tisha, nine: nine, erevYK: erevYK };
 }
 
 /* ---------------- settings ---------------- */
@@ -238,18 +259,22 @@ function weekExtraTotal(date, x) { var sun = weekSunday(date), n = 0; for (var i
 function scoreDay(date) {
   if (isRest(date)) return null;
   var pre = isPreRest(date);
+  /* Bug-fix batch item 11: on a minor fast only the dinner meal questions
+     apply and the workout is at rest (not counted); on Tisha B'Av no meal
+     questions apply at all. */
+  var fastD = isFastDay(date), tishaD = isTishaBav(date);
   var g = function (f) { return !!getDayF(date, f); };
   var items = {};
-  items.protein = pre ? (g("proteinB") && g("proteinL")) : (g("proteinB") && g("proteinL") && g("proteinD"));
-  items.veg = pre ? g("vegL") : (g("vegL") && g("vegD"));
-  items.mealsPlan = pre ? null : (g("mealsPlan") || extraCount(date, "snackX") > 0);
+  items.protein = tishaD ? null : fastD ? g("proteinD") : pre ? (g("proteinB") && g("proteinL")) : (g("proteinB") && g("proteinL") && g("proteinD"));
+  items.veg = tishaD ? null : fastD ? g("vegD") : pre ? g("vegL") : (g("vegL") && g("vegD"));
+  items.mealsPlan = (pre || fastD || tishaD) ? null : (g("mealsPlan") || extraCount(date, "snackX") > 0);
   items.treat = pre ? null : g("treat");
   items.kitchenClosed = pre ? null : g("kitchenClosed");
   items.drinks = g("drinks");
   items.noAlcohol = g("noAlcohol") || extraCount(date, "drinkX") > 0;
   var steps = getDayF(date, "steps");
   items.steps = typeof steps === "number" && steps >= getSetting("stepGoal");
-  items.workout = g("workout") || g("workoutOff");
+  items.workout = (fastD || tishaD) ? null : (g("workout") || g("workoutOff"));
   items.bed = pre ? null : g("bed");
   var score = 0, of = 0;
   Object.keys(items).forEach(function (k) { if (items[k] !== null) { of++; if (items[k]) score++; } });
@@ -482,6 +507,11 @@ function renderToday() {
       h += '<div class="ticks">';
       hab.ticks.forEach(function (tk) {
         var f = tk[0], dis = pre && (f === "proteinD" || f === "vegD");
+        /* Bug-fix batch item 11: on fast days the meal questions that don't
+           apply are skipped (disabled, like dinner ticks on a pre-rest day):
+           a minor fast asks only the dinner questions; Tisha B'Av asks none. */
+        if (isFastDay(date) && (f === "proteinB" || f === "proteinL" || f === "vegL")) dis = true;
+        if (isTishaBav(date) && (f === "proteinB" || f === "proteinL" || f === "proteinD" || f === "vegL" || f === "vegD")) dis = true;
         h += '<button class="tick' + (getDayF(date, f) ? " on" : "") + '" data-act="tick" data-f="' + f + '"' + (dis ? " disabled" : "") + '>' + esc(tk[1]) + '</button>';
       });
       h += '</div>';

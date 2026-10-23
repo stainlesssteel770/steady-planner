@@ -447,6 +447,158 @@ try {
       await page.close();
     });
   }
+
+  /* ============ Item 11: fast-day + Nine Days engine/Today rules ============ */
+  if (run("bf11")) {
+    const engCtx = (week, extra) => Object.assign({ week: week, today: week, rest: {}, pre: {} }, extra || {});
+    const seededGen = async (page, ctx, cells, seeds) => page.evaluate((c, cl, sd) => {
+      // MULBERRY is not in page scope; use a local seeded source with the same shape.
+      const outs = [];
+      sd.forEach((seed) => {
+        let a = seed >>> 0;
+        const rand = () => {
+          a |= 0; a = (a + 0x6D2B79F5) | 0;
+          let t = Math.imul(a ^ (a >>> 15), 1 | a);
+          t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+          return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+        outs.push(PLAN_ENGINE.generate(c, cl, rand));
+      });
+      return outs;
+    }, ctx, cells, seeds);
+    const seeds200 = Array.from({ length: 200 }, (_, i) => 1000 + i * 37);
+
+    await test("r14.bf11a.minor-fast-no-lunch-light-dinner", async () => {
+      const page = await freshPage(browser);
+      const wk = "2027-07-18"; // Tzom Tammuz = Thu Jul 22 (dow 4)
+      const ctx = engCtx(wk, { fast: { 4: "Tzom Tammuz" } });
+      const slotInfo = await page.evaluate((c) => {
+        const sl = PLAN_ENGINE.slots(c, { pro: ["eggs", "yogurt"] });
+        const bk = PLAN_ENGINE.breakfastDays(c, { pro: ["eggs", "yogurt"] }).map((b) => b.dow);
+        return { l4: sl.some((s) => s.dow === 4 && s.slot === "L"), d4: sl.some((s) => s.dow === 4 && s.slot === "D"), bk };
+      }, ctx);
+      assert(!slotInfo.l4, "a minor fast day must have no lunch slot");
+      assert(slotInfo.d4, "a minor fast day keeps its (break-fast) dinner slot");
+      assert(!slotInfo.bk.includes(4), "no breakfast is planned on a minor fast day");
+      const outs = await seededGen(page, ctx, { pro: ["eggs", "yogurt", "chicken", "stew"] }, seeds200);
+      const res = await page.evaluate((outsIn) => outsIn.map((o) => {
+        const r4 = PLAN_ENGINE.resolve({ week: "2027-07-18", today: "2027-07-18", rest: {}, pre: {}, fast: { 4: "Tzom Tammuz" } }, o, "m4D");
+        return { l4: !!o.m4L, d4tag: r4 && r4.meal ? r4.meal.t : null, d4light: r4 && r4.meal ? !!r4.meal.light : false, d4filled: !!(r4 && r4.meal) };
+      }), outs);
+      assert(res.every((r) => !r.l4), "generate must never fill a lunch on a minor fast day");
+      assert(res.every((r) => r.d4filled), "the break-fast dinner should be filled");
+      assert(res.every((r) => r.d4tag !== "M"), "a break-fast dinner is never meat, got tags: " + JSON.stringify(res.map((r) => r.d4tag).filter((t, i, a) => a.indexOf(t) === i)));
+      const lightPct = res.filter((r) => r.d4light).length / res.length;
+      assert(lightPct >= 0.9, "break-fast dinners should be light-tagged in >=90% of builds, got " + Math.round(lightPct * 100) + "%");
+      await page.close();
+    });
+
+    await test("r14.bf11b.tishabav-no-slots", async () => {
+      const page = await freshPage(browser);
+      const wk = "2027-08-08"; // Tisha B'Av = Thu Aug 12 (dow 4)
+      const ctx = engCtx(wk, { tisha: { 4: true } });
+      const slotInfo = await page.evaluate((c) => {
+        const sl = PLAN_ENGINE.slots(c, { pro: ["eggs", "yogurt"] });
+        const bk = PLAN_ENGINE.breakfastDays(c, { pro: ["eggs", "yogurt"] }).map((b) => b.dow);
+        return { any4: sl.some((s) => s.dow === 4), bk };
+      }, ctx);
+      assert(!slotInfo.any4, "Tisha B'Av must have no meal slots at all");
+      assert(!slotInfo.bk.includes(4), "no breakfast is planned on Tisha B'Av");
+      const outs = await seededGen(page, ctx, { pro: ["eggs", "yogurt", "chicken"] }, seeds200.slice(0, 20));
+      assert(outs.every((o) => !o.m4L && !o.m4D), "generate must fill nothing on Tisha B'Av");
+      await page.close();
+    });
+
+    await test("r14.bf11c.nine-days-no-meat", async () => {
+      const page = await freshPage(browser);
+      const wk = "2027-08-08"; // Nine Days 2027: Aug 4-12 -> dows 0-4 of this week; Fri Aug 13 (dow 5) is out
+      const ctx = engCtx(wk, { nine: { 0: true, 1: true, 2: true, 3: true, 4: true } });
+      const outs = await seededGen(page, ctx, { pro: ["chicken", "stew", "yogurt", "salmon"] }, seeds200);
+      const res = await page.evaluate((outsIn, c) => {
+        const tags = { nineMeat: 0, friMeat: 0, checked: 0 };
+        outsIn.forEach((o) => {
+          for (let d = 0; d <= 5; d++) ["L", "D"].forEach((s) => {
+            const r = PLAN_ENGINE.resolve(c, o, "m" + d + s);
+            if (r && r.meal) { tags.checked++; if (r.meal.t === "M") { if (d <= 4) tags.nineMeat++; else tags.friMeat++; } }
+          });
+        });
+        return tags;
+      }, outs, ctx);
+      assert(res.nineMeat === 0, "no meat may be planned inside the Nine Days, got " + res.nineMeat + " meat meals");
+      assert(res.friMeat > 0, "control: meat should still appear on the Friday after the Nine Days, got " + res.friMeat);
+      await page.close();
+    });
+
+    await test("r14.bf11d.erev-yom-kippur-hearty-dinner", async () => {
+      const page = await freshPage(browser);
+      const wk = "2027-10-10"; // Erev YK = Sun Oct 10; YK = Mon Oct 11 (rest, dow 1; pre-rest dow 0)
+      const ctx = engCtx(wk, { rest: { 1: "Yom Kippur" }, pre: { 0: true }, erevYK: { 0: true } });
+      const hasDinnerSlot = await page.evaluate((c) => PLAN_ENGINE.slots(c, { pro: ["yogurt", "chicken"] }).some((s) => s.dow === 0 && s.slot === "D"), ctx);
+      assert(hasDinnerSlot, "Erev Yom Kippur must yield a dinner slot (the pre-fast meal) despite being pre-rest");
+      const outs = await seededGen(page, ctx, { pro: ["yogurt", "chicken"] }, seeds200);
+      const res = await page.evaluate((outsIn, c) => outsIn.map((o) => {
+        const r = PLAN_ENGINE.resolve(c, o, "m0D");
+        return { filled: !!(r && r.meal), light: r && r.meal ? !!r.meal.light : null };
+      }), outs, ctx);
+      assert(res.every((r) => r.filled), "the Erev YK dinner should be filled");
+      const heartyPct = res.filter((r) => r.light === false).length / res.length;
+      assert(heartyPct >= 0.9, "Erev YK dinners should be hearty (non-light) in >=90% of builds, got " + Math.round(heartyPct * 100) + "%");
+      await page.close();
+    });
+
+    await test("r14.bf11e.app-wiring-planctx-and-score", async () => {
+      const page = await freshPage(browser);
+      const res = await page.evaluate(() => {
+        const out = {};
+        const c1 = planCtx("2027-07-18");
+        out.fast4 = c1.fast && c1.fast[4];
+        const c2 = planCtx("2027-08-08");
+        out.tisha4 = !!(c2.tisha && c2.tisha[4]);
+        out.nine0to4 = [0, 1, 2, 3, 4].every((d) => c2.nine && c2.nine[d]);
+        out.nine5 = !!(c2.nine && c2.nine[5]);
+        const c3 = planCtx("2027-10-10");
+        out.erevYK0 = !!(c3.erevYK && c3.erevYK[0]);
+        out.ykRest = c3.rest && c3.rest[1];
+        out.isFast = typeof isFastDay === "function" && isFastDay("2027-07-22");
+        out.isTisha = typeof isTishaBav === "function" && isTishaBav("2027-08-12");
+        // Score on the fast day: only the dinner protein question applies.
+        state.days["2027-07-22"] = { f: { proteinD: { v: true, ts: 1 } } };
+        const sc = scoreDay("2027-07-22");
+        out.proteinDinnerOnly = sc && sc.items.protein === true;
+        out.workoutNull = sc && sc.items.workout === null;
+        state.days["2027-07-22"] = { f: {} };
+        const sc2 = scoreDay("2027-07-22");
+        out.proteinMissingDinner = sc2 && sc2.items.protein === false;
+        return out;
+      });
+      assert(res.fast4, "planCtx should carry the fast map (Tzom Tammuz at dow 4), got: " + res.fast4);
+      assert(res.tisha4 && res.nine0to4 && !res.nine5, "planCtx should carry tisha + nine maps for the Nine Days week");
+      assert(res.erevYK0, "planCtx should mark Erev Yom Kippur (dow 0 of the Oct 10 week)");
+      assert(res.ykRest === "Yom Kippur", "confirm: Yom Kippur itself is a rest day with no meals, got: " + res.ykRest);
+      assert(res.isFast && res.isTisha, "isFastDay/isTishaBav helpers should read the loaded calendar");
+      assert(res.proteinDinnerOnly, "on a minor fast, protein should be satisfied by the dinner tick alone");
+      assert(res.workoutNull, "on a minor fast, the workout should not count (rest)");
+      assert(res.proteinMissingDinner, "on a minor fast, protein should still require the dinner tick");
+      await page.close();
+    });
+
+    await test("r14.bf11f.today-flow-skips-fast-meal-questions", async () => {
+      const page = await freshPage(browser);
+      await page.evaluate(() => {
+        try { localStorage.setItem("steady.testmode", JSON.stringify({ fake: "2027-07-22", lastSeen: Date.now() })); } catch (e) {}
+      });
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
+      await wait(350);
+      const res = await page.evaluate(() => {
+        const dis = (f) => { const b = document.querySelector('[data-act="tick"][data-f="' + f + '"]'); return b ? b.disabled : null; };
+        return { pB: dis("proteinB"), pL: dis("proteinL"), pD: dis("proteinD"), vL: dis("vegL"), vD: dis("vegD") };
+      });
+      assert(res.pB === true && res.pL === true && res.vL === true, "breakfast/lunch meal questions should be skipped on a minor fast, got: " + JSON.stringify(res));
+      assert(res.pD === false && res.vD === false, "the dinner (break-fast) questions should stay live, got: " + JSON.stringify(res));
+      await page.close();
+    });
+  }
 } finally {
   await browser.close();
 }
