@@ -271,6 +271,7 @@ try {
         };
       });
       // A real edit through a real control: tick a habit on Today.
+      await page.waitForSelector('[data-act="tick"]', { timeout: 15000 });
       await page.evaluate(() => document.querySelector('[data-act="tick"]').click());
       await wait(500);
       const badStatus = await page.evaluate(() => document.getElementById("syncStatus").textContent);
@@ -278,6 +279,7 @@ try {
       assert(badStatus.length > 0, "a failure status should be shown instead, got empty");
       // Control: writes work again -> the saved status returns.
       await page.evaluate(() => { Storage.prototype.setItem = window.__origSetItem; });
+      await page.waitForSelector('[data-act="tick"]', { timeout: 15000 });
       await page.evaluate(() => document.querySelector('[data-act="tick"]').click());
       await wait(500);
       const okStatus = await page.evaluate(() => document.getElementById("syncStatus").textContent);
