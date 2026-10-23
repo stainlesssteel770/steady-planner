@@ -262,6 +262,11 @@ try {
   if (run("bf6")) {
     await test("r14.bf6.failed-save-status-is-honest", async () => {
       const page = await freshPage(browser);
+      // Pages in this suite share one browser profile, so drive the app to
+      // a known state first: no inherited TESTMODE fake, Today tab shown.
+      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
       await page.evaluate(() => {
         const orig = Storage.prototype.setItem;
         window.__origSetItem = orig;
@@ -269,18 +274,20 @@ try {
           if (k === "steady.state") { const e = new Error("quota"); e.name = "QuotaExceededError"; throw e; }
           return orig.call(this, k, v);
         };
+        ui.tab = "today"; saveUi(); render(true);
       });
-      // A real edit through a real control: tick a habit on Today.
-      await page.waitForSelector('[data-act="tick"]', { timeout: 15000 });
-      await page.evaluate(() => document.querySelector('[data-act="tick"]').click());
+      // A real edit through a real control: tick a habit on Today. (The
+      // "drinks" tick is used because no day rule ever disables it.)
+      await page.waitForSelector('[data-act="tick"][data-f="drinks"]', { timeout: 15000 });
+      await page.evaluate(() => document.querySelector('[data-act="tick"][data-f="drinks"]').click());
       await wait(500);
       const badStatus = await page.evaluate(() => document.getElementById("syncStatus").textContent);
       assert(badStatus !== "Saved on this phone", "status must not claim a save that failed, got: '" + badStatus + "'");
       assert(badStatus.length > 0, "a failure status should be shown instead, got empty");
       // Control: writes work again -> the saved status returns.
       await page.evaluate(() => { Storage.prototype.setItem = window.__origSetItem; });
-      await page.waitForSelector('[data-act="tick"]', { timeout: 15000 });
-      await page.evaluate(() => document.querySelector('[data-act="tick"]').click());
+      await page.waitForSelector('[data-act="tick"][data-f="drinks"]', { timeout: 15000 });
+      await page.evaluate(() => document.querySelector('[data-act="tick"][data-f="drinks"]').click());
       await wait(500);
       const okStatus = await page.evaluate(() => document.getElementById("syncStatus").textContent);
       assert(okStatus === "Saved on this phone", "control: a successful save should show the saved status, got: '" + okStatus + "'");
