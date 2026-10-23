@@ -94,6 +94,9 @@ const restoreRes = await page.evaluate(async () => {
   return { res: "ok", measure };
 });
 check("Add1 Restore button visible + hit-testable", restoreRes.res === "ok", restoreRes.res + " [" + restoreRes.measure + "]");
+// Tab (issue #1): also write the measurement to the CI step summary so it is
+// readable on the run page without admin log access.
+{ const ghs = process.env.GITHUB_STEP_SUMMARY; if (ghs) { try { fs.appendFileSync(ghs, "[restore-measure] r2b.add1 " + restoreRes.measure + "\n"); } catch (e) {} } }
 await sleep(400);
 cells = await planWeekCells(page, nextSun);
 const cardsAfter = await page.evaluate(() => document.querySelectorAll(".meal-card").length);

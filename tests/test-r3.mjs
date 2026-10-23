@@ -228,6 +228,9 @@ try {
         return { res: "ok", measure };
       });
       console.log("[restore-measure] r3.b6 " + restoreRes.measure);
+      // Tab (issue #1): also write the measurement to the CI step summary so
+      // it is readable on the run page without admin log access.
+      { const ghs = process.env.GITHUB_STEP_SUMMARY; if (ghs) { try { fs.appendFileSync(ghs, "[restore-measure] r3.b6 " + restoreRes.measure + "\n"); } catch (e) {} } }
       assert(restoreRes.res === "ok", "Restore button visible + hit-testable, got: " + restoreRes.res + " [" + restoreRes.measure + "]");
       await wait(200);
       const res = await page.evaluate((w) => ({ has: planHasMeals(w) }), tw);

@@ -244,10 +244,39 @@ try {
       await page.waitForSelector("#mpList .mp-opt", { timeout: 5000 });
       await wait(250);
     };
+    // TIME-PROOFING (issue #1): the picker section seeds day m4 (Thursday) of
+    // the CURRENT week and expects a .meal-card. planWeekHTML renders days
+    // before app-today as one-line past-day stubs with NO .meal-card, so once
+    // the 4 AM rollover flips app-today to Friday, "no meal card m4L" fails all
+    // three picker tests. Pin the app to Thursday via the TESTMODE hook
+    // (localStorage steady.testmode, read at boot) so app-today is always the
+    // seeded Thursday, at any wall-clock hour. Test-only; the app is untouched.
+    const freshPinnedPage = async (browser) => {
+      const page = await freshPage(browser);
+      const fake = await page.evaluate(() => {
+        const f = addDays(weekSunday(todayStr), 4); // Thursday of this week
+        try { localStorage.setItem("steady.testmode", JSON.stringify({ fake: f, lastSeen: Date.now() })); } catch (e) {}
+        return f;
+      });
+      await page.reload({ waitUntil: "networkidle0", timeout: 90000 });
+      await page.waitForFunction(() => window.PLAN_ENGINE && window.PLAN_DATA && document.getElementById("main"));
+      await wait(350);
+      return { page, fake };
+    };
+    // Regression guard: the pin must be in force AND the m4L card must render
+    // as a full card (a past-day stub means the pin regressed).
+    const assertPin = async (page, fake) => {
+      const p = await page.evaluate(() => ({
+        todayStr: todayStr, card: !!document.querySelector('.meal-card[data-k="m4L"]')
+      }));
+      assert(p.todayStr === fake, "TESTMODE pin did not take: todayStr=" + p.todayStr + " fake=" + fake);
+      assert(p.card, "m4L must render as a full meal card under the Thursday pin, not a past-day stub");
+    };
 
     await test("r13.picker.blocked-meals-shown-marked-and-pickable", async () => {
-      const page = await freshPage(browser);
+      const { page, fake } = await freshPinnedPage(browser);
       const { tw } = await seedWeek(page, { pro: ["chicken", "yogurt"], m4D: { id: "y3" }, m4L: { id: "y1" } });
+      await assertPin(page, fake);
       await openViaCard(page, "m4L");
       const pk = await page.evaluate(() => {
         const rows = Array.from(document.querySelectorAll("#mpList .mp-opt[data-id]"));
@@ -274,8 +303,9 @@ try {
     });
 
     await test("r13.picker.blocked-leftovers-row-pickable", async () => {
-      const page = await freshPage(browser);
+      const { page, fake } = await freshPinnedPage(browser);
       const { tw } = await seedWeek(page, { pro: ["chicken", "yogurt"], m3D: { id: "c1" }, m4D: { id: "y3" }, m4L: { id: "y1" } });
+      await assertPin(page, fake);
       await openViaCard(page, "m4L");
       const lo = await page.evaluate(() => {
         const b = document.querySelector('#mpList [data-act="mp-lo"]');
@@ -294,8 +324,9 @@ try {
     });
 
     await test("r13.picker.toggle-on-no-override-section", async () => {
-      const page = await freshPage(browser);
+      const { page, fake } = await freshPinnedPage(browser);
       await seedWeek(page, { pro: ["chicken", "yogurt"], mdGap: true, m4D: { id: "y3" }, m4L: { id: "y1" } });
+      await assertPin(page, fake);
       await openViaCard(page, "m4L");
       const pk = await page.evaluate(() => ({
         blocked: document.querySelectorAll("#mpList .mp-opt-blocked").length,
