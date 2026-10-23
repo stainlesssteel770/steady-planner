@@ -1,6 +1,12 @@
 name: Deploy Steady to GitHub Pages
+# A red push must never go live: deploy only after the test battery passes.
+# This workflow is triggered by the "Steady test battery" workflow_run
+# event (success conclusion only) instead of in parallel with the battery.
+# workflow_dispatch still deploys on demand.
 on:
-  push:
+  workflow_run:
+    workflows: ["Steady test battery"]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
 permissions:
@@ -12,12 +18,15 @@ concurrency:
   cancel-in-progress: false
 jobs:
   deploy:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.ref }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
