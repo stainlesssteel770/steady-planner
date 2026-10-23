@@ -823,7 +823,8 @@ try {
       const read = () => page.evaluate(() => {
         const card = Array.from(document.querySelectorAll("section.card")).find((s) => { const h = s.querySelector("h3"); return h && h.textContent === "On the plan"; });
         const tmr = card ? card.querySelector(".tmr") : null;
-        return { card: !!card, tmr: !!tmr, text: tmr ? tmr.textContent : "", thaw: !!(tmr && tmr.querySelector(".tmr-thaw")) };
+        const th = tmr ? tmr.querySelector(".tmr-thaw") : null;
+        return { card: !!card, tmr: !!tmr, text: tmr ? tmr.textContent : "", thaw: !!th, thawText: th ? th.textContent.trim() : "" };
       });
       await seed(pick.frozen);
       let res = await read();
@@ -831,6 +832,7 @@ try {
       assert(res.text.indexOf(pick.frozen.n) >= 0, "tomorrow's dinner should show, got: " + res.text);
       assert(res.thaw, "the thaw line should show when a freezer portion is due tomorrow");
       assert(res.text.indexOf("Tonight:") >= 0, "the thaw line should read as a tonight action, got: " + res.text);
+      const thawText1 = res.thawText;
       // Swap in the no-thaw dinner: block stays, thaw line goes.
       await seed(pick.fresh);
       res = await read();
@@ -851,6 +853,44 @@ try {
       await wait(300);
       res = await read();
       assert(!res.tmr, "no Tomorrow block when tomorrow is a rest day");
+      // Tab's added assert (6375571990): Today's Tonight line and the Plan
+      // tab's Thaw reminders must agree. Two halves:
+      // (a) Non-vacuous cross-check — the Thursday thaw from the Wednesday
+      //     scenario above must appear, same words, in the Plan tab's own
+      //     Thaw reminders for that week (viewed on prep day, Sunday).
+      // (b) On prep day itself both surfaces agree about tomorrow: with
+      //     current data no Monday thaw exists (every freezable component
+      //     keeps >= 1 day), so both must list none for Monday.
+      await page.evaluate(() => { try { localStorage.setItem("steady.testmode", JSON.stringify({ fake: "2026-10-18", lastSeen: Date.now() })); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
+      await page.evaluate((fz) => {
+        const wk = "2026-10-18";
+        const lunch = Object.values(PLAN_DATA.MEALS).find((m) => (m.s || "").indexOf("L") >= 0);
+        state.plans[wk] = { f: { pro: { v: [lunch.p, fz.p], ts: 1 } } };
+        state.plans[wk].f.m0L = { v: { id: lunch.id }, ts: 1 };
+        state.plans[wk].f.m1D = { v: { id: fz.id }, ts: 1 };
+        state.plans[wk].f.m4D = { v: { id: fz.id }, ts: 1 };
+        saveLocal(); ui.tab = "today"; saveUi(); render(true);
+      }, pick.frozen);
+      await wait(300);
+      res = await read();
+      assert(res.tmr && res.text.indexOf(pick.frozen.n) >= 0, "on prep day the Tomorrow block should show Monday's dinner");
+      assert(!res.thaw, "on prep day, Today must list no thaw for Monday (agreeing with the Plan tab)");
+      const planThaws = await page.evaluate(() => {
+        ui.tab = "plan"; ui.planStep = "prep"; ui.planWs = "2026-10-18"; saveUi(); render(true);
+        const heads = Array.from(document.querySelectorAll("h4"));
+        const th = heads.find((x) => x.textContent === "Thaw reminders");
+        if (!th) return { found: false, rows: [] };
+        const rows = [];
+        let el = th.nextElementSibling;
+        while (el && el.tagName !== "H4") { rows.push(el.textContent.trim()); el = el.nextElementSibling; }
+        return { found: true, rows };
+      });
+      assert(planThaws.found, "the Plan tab should render its Thaw reminders list for this week");
+      const core = thawText1.replace(/^❄\s*/, "").replace(/^Tonight: move /, "Move ");
+      assert(planThaws.rows.some((r) => r.indexOf(core) >= 0), "the Plan tab's Thaw reminders should list the same thaw as Today's Tonight line ('" + core + "'), rows: " + JSON.stringify(planThaws.rows));
+      assert(!planThaws.rows.some((r) => r.indexOf("Monday") >= 0), "the Plan tab should list no Monday thaw (agreeing with Today on prep day)");
       // Clean up the fake so later sections see the real date.
       await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
       await page.reload({ waitUntil: "networkidle0" });
