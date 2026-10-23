@@ -8,7 +8,7 @@ var STEADY = window.STEADY, PD = window.PLAN_DATA, ENGINE = window.PLAN_ENGINE;
 
 /* ---------------- storage ---------------- */
 function lsGet(k, dflt) { try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : dflt; } catch (e) { return dflt; } }
-function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } }
 var state = lsGet("steady.state", null) || { settings: { f: {} }, favorites: { items: {} }, days: {}, grocery: { f: {} }, plans: {} };
 if (!state.settings) state.settings = { f: {} };
 if (!state.days) state.days = {};
@@ -50,7 +50,10 @@ window.addEventListener("storage", function (e) {
 function saveStateRev() {
   lastSaveOk = false; lastSaveStale = false;
   if (readStateRev() > lastReadRev) { lastSaveStale = true; showReloadPrompt(); return false; }
-  lsSet("steady.state", state);
+  /* Bug-fix batch item 6: lsSet used to swallow write failures (e.g. quota),
+     so a save that never landed still claimed success. Honor its result —
+     and don't bump the rev for a write that didn't happen. */
+  if (!lsSet("steady.state", state)) return false;
   var nv = lastReadRev + 1;
   try { localStorage.setItem("steady.stateRev", String(nv)); } catch (e) { return false; }
   lastReadRev = nv;
@@ -165,6 +168,12 @@ function statusAfterEdit() {
     setStatus("Saved on this phone");
     clearTimeout(settleTimer);
     settleTimer = setTimeout(function () { setStatus(""); }, 2000);
+  } else if (!lastSaveStale) {
+    /* Bug-fix batch item 6: a failed save (e.g. storage full) must say so,
+       not claim success. PLACEHOLDER wording — held for Mark (flagged in
+       the batch report). No auto-clear: it stays until a save succeeds. */
+    clearTimeout(settleTimer);
+    setStatus("Couldn't save — storage may be full");
   }
 }
 function applyCells(doc, f, cleared) {

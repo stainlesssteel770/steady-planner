@@ -257,6 +257,34 @@ try {
       await page.close();
     });
   }
+
+  /* ============ Item 6: a failed save must not claim "Saved on this phone" ============ */
+  if (run("bf6")) {
+    await test("r14.bf6.failed-save-status-is-honest", async () => {
+      const page = await freshPage(browser);
+      await page.evaluate(() => {
+        const orig = Storage.prototype.setItem;
+        window.__origSetItem = orig;
+        Storage.prototype.setItem = function (k, v) {
+          if (k === "steady.state") { const e = new Error("quota"); e.name = "QuotaExceededError"; throw e; }
+          return orig.call(this, k, v);
+        };
+      });
+      // A real edit through a real control: tick a habit on Today.
+      await page.evaluate(() => document.querySelector('[data-act="tick"]').click());
+      await wait(500);
+      const badStatus = await page.evaluate(() => document.getElementById("syncStatus").textContent);
+      assert(badStatus !== "Saved on this phone", "status must not claim a save that failed, got: '" + badStatus + "'");
+      assert(badStatus.length > 0, "a failure status should be shown instead, got empty");
+      // Control: writes work again -> the saved status returns.
+      await page.evaluate(() => { Storage.prototype.setItem = window.__origSetItem; });
+      await page.evaluate(() => document.querySelector('[data-act="tick"]').click());
+      await wait(500);
+      const okStatus = await page.evaluate(() => document.getElementById("syncStatus").textContent);
+      assert(okStatus === "Saved on this phone", "control: a successful save should show the saved status, got: '" + okStatus + "'");
+      await page.close();
+    });
+  }
 } finally {
   await browser.close();
 }
