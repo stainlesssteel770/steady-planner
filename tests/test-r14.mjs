@@ -122,6 +122,58 @@ try {
     });
   }
 
+  /* ============ Item 3: stale-save guard (stateRev) ============ */
+  if (run("bf3")) {
+    await test("r14.bf3.stale-copy-save-refused-newer-data-intact", async () => {
+      const pageA = await freshPage(browser);
+      await pageA.evaluate(() => { localStorage.clear(); });
+      await pageA.reload({ waitUntil: "networkidle0" });
+      await pageA.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
+      await wait(300);
+      const pageB = await browser.newPage();
+      await pageB.setViewport({ width: WIDTH, height: 844 });
+      pageB.on("dialog", (d) => d.accept());
+      await pageB.goto("http://localhost:8899/steady-planner/", { waitUntil: "networkidle0", timeout: 90000 });
+      await pageB.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
+      await wait(300);
+      // Copy B saves (bumps the rev) while copy A is still open on the old rev.
+      await pageB.evaluate(() => { state.settings = state.settings || {}; state.settings.__copyB = 1; saveLocal(); });
+      await wait(400); // storage event reaches A
+      const aSide = await pageA.evaluate(() => ({
+        banner: !!document.getElementById("staleBanner"),
+        reloadBtn: !!document.querySelector('[data-act="stale-reload"]')
+      }));
+      assert(aSide.banner, "copy A should show the stale/reload banner after copy B saved");
+      assert(aSide.reloadBtn, "the banner should offer a reload action");
+      // Copy A tries to save: must be refused; B's data and rev stay intact.
+      const refused = await pageA.evaluate(() => saveLocal());
+      assert(refused === false, "copy A's stale save should be refused (saveLocal returns false), got " + refused);
+      const stored = await pageA.evaluate(() => ({
+        rev: localStorage.getItem("steady.stateRev"),
+        hasB: (JSON.parse(localStorage.getItem("steady.state") || "{}").settings || {}).__copyB === 1
+      }));
+      assert(stored.rev === "1", "stored rev should still be B's 1, got " + stored.rev);
+      assert(stored.hasB, "copy B's saved data should be intact after A's refused save");
+      await pageB.close();
+      await pageA.close();
+    });
+
+    await test("r14.bf3.fresh-copy-save-still-works", async () => {
+      const page = await freshPage(browser);
+      await page.evaluate(() => { localStorage.clear(); });
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
+      await wait(300);
+      const res = await page.evaluate(() => {
+        const ok = saveLocal();
+        return { ok, rev: localStorage.getItem("steady.stateRev"), banner: !!document.getElementById("staleBanner") };
+      });
+      assert(res.ok === true, "a fresh copy's save should succeed, got " + res.ok);
+      assert(res.rev === "1", "rev should bump to 1 after the first save, got " + res.rev);
+      assert(!res.banner, "no stale banner on a fresh copy");
+      await page.close();
+    });
+  }
 } finally {
   await browser.close();
 }

@@ -20,7 +20,43 @@ if (!ui.tab) ui.tab = "today";
 if (ui.tab === "grocery") { ui.tab = "plan"; ui.planStep = "shop"; }
 if (!ui.rounds) ui.rounds = {};
 if (!ui.mealOpen) ui.mealOpen = "breakfast";
-function saveLocal() { lsSet("steady.state", state); }
+function saveLocal() { return saveStateRev(); }
+/* Bug-fix batch item 3: stale-save guard. steady.stateRev is an integer that
+   bumps on every successful saveLocal; lastReadRev is the rev this copy last
+   saw. Before each write we re-read the stored rev — if another copy (another
+   tab or device) wrote since, we refuse instead of clobbering and surface a
+   reload prompt. A storage event on the rev key is the cross-tab signal. */
+function readStateRev() { try { var r = parseInt(localStorage.getItem("steady.stateRev") || "0", 10); return isFinite(r) && r >= 0 ? r : 0; } catch (e) { return 0; } }
+var lastReadRev = readStateRev();
+var lastSaveOk = true, lastSaveStale = false, stalePromptShown = false;
+function showReloadPrompt() {
+  if (stalePromptShown) return;
+  stalePromptShown = true;
+  /* PLACEHOLDER wording — held for Mark (flagged in the batch report). */
+  var b = document.createElement("div");
+  b.id = "staleBanner";
+  b.className = "banner warn";
+  b.innerHTML = "<b>Steady was updated somewhere else.</b> This copy is out of date, so saving is paused — reload to load the newer data first. " +
+    "<button class=\"btn\" data-act=\"stale-reload\">Reload now</button>";
+  var app = document.getElementById("app");
+  if (app) app.insertBefore(b, app.firstChild); else document.body.insertBefore(b, document.body.firstChild);
+}
+window.addEventListener("storage", function (e) {
+  if (e && e.key === "steady.stateRev") {
+    var r = parseInt(e.newValue || "0", 10);
+    if (isFinite(r) && r > lastReadRev) showReloadPrompt();
+  }
+});
+function saveStateRev() {
+  lastSaveOk = false; lastSaveStale = false;
+  if (readStateRev() > lastReadRev) { lastSaveStale = true; showReloadPrompt(); return false; }
+  lsSet("steady.state", state);
+  var nv = lastReadRev + 1;
+  try { localStorage.setItem("steady.stateRev", String(nv)); } catch (e) { return false; }
+  lastReadRev = nv;
+  lastSaveOk = true;
+  return true;
+}
 function saveUi() { lsSet("steady.ui", ui); }
 
 /* ---------------- dates ---------------- */
@@ -122,9 +158,14 @@ function setStatus(text) {
   if (el) el.textContent = text;
 }
 function statusAfterEdit() {
-  setStatus("Saved on this phone");
-  clearTimeout(settleTimer);
-  settleTimer = setTimeout(function () { setStatus(""); }, 2000);
+  /* Bug-fix batch item 3: only claim "Saved on this phone" when the save
+     actually went through. On a stale refusal the reload banner carries the
+     message, so the status line stays untouched. */
+  if (lastSaveOk) {
+    setStatus("Saved on this phone");
+    clearTimeout(settleTimer);
+    settleTimer = setTimeout(function () { setStatus(""); }, 2000);
+  }
 }
 function applyCells(doc, f, cleared) {
   if (!doc.f) doc.f = {};
@@ -1414,6 +1455,7 @@ document.addEventListener("click", function (ev) {
   var act = el.getAttribute("data-act");
   // tabs
   if (act === "tab") { gotoTab(el.getAttribute("data-tab")); return; }
+  if (act === "stale-reload") { window.location.reload(); return; }
   if (act === "goto-workout") { gotoTab("workout"); return; }
   if (act === "goto-plan-week") { ui.planWs = weekSunday(selDate); gotoTab("plan", "week"); return; }
   if (act === "goto-plan-prep") { gotoTab("plan", "prep"); return; }
@@ -2118,7 +2160,9 @@ document.getElementById("restoreInput").addEventListener("change", function (ev)
     if (!window.confirm("Restore this backup? It replaces everything Steady has saved on this phone.")) return;
     var cleaned = sanitizeBackup(parsed);
     state = cleaned.state;
-    saveLocal();
+    /* Bug-fix batch item 3: a stale copy must not clobber newer data with a
+       restore either — the reload prompt is already shown; don't claim success. */
+    if (!saveLocal()) { render(true); return; }
     if (cleaned.lastCleared !== undefined) {
       if (Object.keys(cleaned.lastCleared).length) lsSet("steady.lastCleared", cleaned.lastCleared);
       else try { localStorage.removeItem("steady.lastCleared"); } catch (e) {}
