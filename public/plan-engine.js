@@ -251,6 +251,11 @@
       return null;
     }
     // Dinners first, rotating proteins, skipping last night's protein.
+    /* Bug-fix batch item 1: the mdGap plan toggle ("meat lunch OK before a
+       dairy dinner — dinner is 6+ hours later") lifts the meat-before-dairy
+       day rule everywhere in the generator, dinner pass included. Off
+       (default) = v21 behavior. Declared here so the dinner pass can use it. */
+    var mdGapOn = v.mdGap === true;
     sl.filter(function (s) { return s.slot === "D"; }).forEach(function (s) {
       if (s.past || out[s.key]) return; // locked (or history)
       var prevP = prevDinnerProtein(s.dow);
@@ -261,7 +266,17 @@
         order.push(p);
       }
       if (!order.length) order = rotation.slice();
-      var meal = chooseMeal("D", order, {});
+      /* Bug-fix batch item 1: a locked meat lunch constrains the dinner pass.
+         "Shuffle all unlocked" runs dinners first with no constraint, so a
+         locked meat lunch could end up under a dairy dinner (~1/4 of rebuilds).
+         Apply the same hard pickerBlocked exclusion shuffleOne uses for the
+         dinner slot (lifted by the mdGap toggle, like everywhere else). */
+      var dopts = {};
+      var luR = resolve(ctx, out, "m" + s.dow + "L");
+      if (luR && luR.locked && luR.meal && !mdGapOn && pickerBlocked("D", "D", luR.meal.t)) {
+        dopts = { excludeTag: "D", excludeTagHard: true };
+      }
+      var meal = chooseMeal("D", order, dopts);
       if (meal) {
         out[s.key] = { id: meal.id };
         used[meal.id] = true;
@@ -271,10 +286,7 @@
     });
     // Lunches next.
     var leftoverPlaced = false;
-    /* Batch 4 item 4: the mdGap plan toggle ("meat lunch OK before a dairy
-       dinner — dinner is 6+ hours later") lifts the meat-before-dairy day
-       rule everywhere in the generator. Off (default) = v21 behavior. */
-    var mdGapOn = v.mdGap === true;
+    /* (mdGapOn is declared above the dinner pass; the lunch loop reuses it.) */
     sl.filter(function (s) { return s.slot === "L"; }).forEach(function (s) {
       if (s.past) {
         /* Beta batch 2 item 6: past meals still count for variety — a

@@ -18,5 +18,9 @@ OUT=$(WIDTH=$W node test-r13.mjs "$SEC" 2>&1)
 RC=$?
 echo "[$W] r13($SEC) (rc=$RC): $(echo "$OUT" | tail -1)"
 if [ $RC -ne 0 ]; then echo "$OUT" | grep -E "FAIL" | head -8; FAIL=1; fi
+OUT=$(WIDTH=$W node test-r14.mjs all 2>&1)
+RC=$?
+echo "[$W] r14 (rc=$RC): $(echo "$OUT" | tail -1)"
+if [ $RC -ne 0 ]; then echo "$OUT" | grep -E "FAIL" | head -8; FAIL=1; fi
 echo "BATTERY width=$W section=$SEC => $([ $FAIL -eq 0 ] && echo ALL-GREEN || echo FAILURES)"
 exit $FAIL
