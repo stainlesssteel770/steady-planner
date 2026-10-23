@@ -1686,6 +1686,14 @@ document.addEventListener("click", function (ev) {
         setPark(week7, null);
       });
     });
+    /* Mark's decision via Tab (issue #1, v23): right after Clear, the restore
+       card must be fully visible with no scrolling. The queueOp render above
+       is synchronous and showUndoToast's end-of-page nudge (if any) already
+       ran, so scroll here. block:"center" keeps the button clear of the top
+       and of the fixed undo toast (bottom:84) / tab bar. Guarded: the button
+       renders only when a cleared week is parked. */
+    var rb7 = document.querySelector('button[data-act="restore-cleared"]');
+    if (rb7 && rb7.scrollIntoView) rb7.scrollIntoView({ block: "center" });
     return;
   }
   if (act === "restore-cleared") {

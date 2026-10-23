@@ -6,6 +6,7 @@ import fs from "fs";
 const CHROME = process.env.CHROME_PATH || "/home/hatch/.cache/puppeteer/chrome/linux-155.0.8059.84/chrome-linux64/chrome";
 const URL = "http://localhost:8899/steady-planner/";
 const DW = parseInt(process.env.WIDTH || "390", 10);
+const DH = parseInt(process.env.HEIGHT || "844", 10); // sweep support: 667
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let passed = 0, failed = 0;
@@ -17,7 +18,7 @@ async function test(name, fn) {
 
 async function freshPage(browser, width, height) {
   const page = await browser.newPage();
-  await page.setViewport({ width: width || DW, height: height || 844 });
+  await page.setViewport({ width: width || DW, height: height || DH });
   await page.goto(URL, { waitUntil: "load" });
   await page.waitForFunction(() => window.PLAN_ENGINE && window.PLAN_DATA && document.getElementById("main"));
   await page.evaluate(() => localStorage.clear());
@@ -204,24 +205,42 @@ try {
     });
     await test("r3.b6.restore-still-works", async () => {
       assert(page, "needs b6 page");
-      await gotoPlan(page, tw, "pro");
+      // Fresh clear inside this test, mirroring the real user flow: build a
+      // full week via the UI, open the week view, then tap "Start this week
+      // over". Fixture: park the page at scroll top and fire a DOM click
+      // (no puppeteer auto-scroll — a real tap never re-scrolls the page).
+      // On the pre-v23 tree the viewport stays at the top and the restore
+      // card renders below the fold (measured: top 805–902 at scroll 0);
+      // the v23 app scrolls it to the viewport centre instead. The assertion
+      // runs immediately after, with NO test-side scrolling and NO
+      // navigation in between — navigating (tab change / gotoPlan) resets
+      // scroll state and would not exercise the app's scroll. Mark's
+      // decision via Tab (issue #1, v23): right after Clear, the Restore
+      // control must be fully visible with no scrolling. Assert the button's
+      // rect is fully inside the viewport AND near the viewport centre
+      // (the app uses block:"center", so centring proves the app did the
+      // scrolling — it also fails the pre-v23 tree at sizes where the card
+      // happens to fall just inside the viewport), then the guard per Tab's
+      // approval: document.elementFromPoint at its centre must return the
+      // button (or a child of it) — not the sticky header, the undo toast at
+      // bottom:84, or the tab bar. "out-of-viewport"/"not-centred" fail on
+      // the pre-v23 tree; "covered" fails on any fixed element covering it.
+      await buildViaUI(page, tw);
+      await gotoPlan(page, tw, "week");
+      await page.evaluate(() => { window.scrollTo(0, 0); document.querySelector('[data-act="week-clear"]').click(); });
       await page.waitForSelector('[data-act="restore-cleared"]', { timeout: 5000 });
       // DOM click (not a puppeteer coordinate click): the Restore button
-      // only renders after a re-render. Per Tab's adjudication (issue #1):
-      // scroll it into view first (below the fold is normal), wait one
-      // frame, then the guard: visible and hit-testable — what
-      // document.elementFromPoint at its center returns (or a child).
-      // "covered" still fails even after scrolling. Measurement logged
-      // before scrolling so the report can state where it renders post-Clear.
+      // only renders after a re-render.
       const restoreRes = await page.evaluate(async () => {
         const b = document.querySelector('[data-act="restore-cleared"]');
         if (!b) return { res: "missing", measure: "none" };
-        const r0 = b.getBoundingClientRect();
-        const measure = "width=" + innerWidth + " preScrollTop=" + Math.round(r0.top) + " innerHeight=" + innerHeight;
-        b.scrollIntoView({ block: "center" });
         await new Promise(r => requestAnimationFrame(r));
         const r = b.getBoundingClientRect();
+        const measure = "width=" + innerWidth + " top=" + Math.round(r.top) + " bottom=" + Math.round(r.bottom) + " innerHeight=" + innerHeight;
         if (r.width <= 0 || r.height <= 0) return { res: "invisible", measure };
+        if (r.top < 0 || r.bottom > innerHeight) return { res: "out-of-viewport", measure };
+        var centerOff = Math.abs((r.top + r.bottom) / 2 - innerHeight / 2);
+        if (centerOff > 80) return { res: "not-centred:off=" + Math.round(centerOff), measure };
         const el = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
         if (el !== b && !b.contains(el)) return { res: "covered:" + (el ? el.tagName : "none"), measure };
         b.click();
