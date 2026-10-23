@@ -32,12 +32,13 @@ var lastSaveOk = true, lastSaveStale = false, stalePromptShown = false;
 function showReloadPrompt() {
   if (stalePromptShown) return;
   stalePromptShown = true;
-  /* PLACEHOLDER wording — held for Mark (flagged in the batch report). */
+  /* Wording approved by Mark (issue #1, 2026-10-23). The banner fires when
+     another open tab has saved newer state than this copy has loaded. */
   var b = document.createElement("div");
   b.id = "staleBanner";
   b.className = "banner warn";
-  b.innerHTML = "<b>Steady was updated somewhere else.</b> This copy is out of date, so saving is paused — reload to load the newer data first. " +
-    "<button class=\"btn\" data-act=\"stale-reload\">Reload now</button>";
+  b.innerHTML = "A newer version of Steady is open in another tab. Tap Reload so you don't lose changes. " +
+    "<button class=\"btn\" data-act=\"stale-reload\">Reload</button>";
   var app = document.getElementById("app");
   if (app) app.insertBefore(b, app.firstChild); else document.body.insertBefore(b, document.body.firstChild);
 }

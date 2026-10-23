@@ -141,10 +141,15 @@ try {
       await wait(400); // storage event reaches A
       const aSide = await pageA.evaluate(() => ({
         banner: !!document.getElementById("staleBanner"),
-        reloadBtn: !!document.querySelector('[data-act="stale-reload"]')
+        reloadBtn: !!document.querySelector('[data-act="stale-reload"]'),
+        bannerText: document.getElementById("staleBanner") ? document.getElementById("staleBanner").textContent : "",
+        btnLabel: document.querySelector('[data-act="stale-reload"]') ? document.querySelector('[data-act="stale-reload"]').textContent.trim() : ""
       }));
       assert(aSide.banner, "copy A should show the stale/reload banner after copy B saved");
       assert(aSide.reloadBtn, "the banner should offer a reload action");
+      // Mark's approved wording (issue #1, 2026-10-23).
+      assert(aSide.bannerText.indexOf("A newer version of Steady is open in another tab. Tap Reload so you don't lose changes.") >= 0, "banner should carry Mark's approved text, got: " + aSide.bannerText);
+      assert(aSide.btnLabel === "Reload", "banner button should read 'Reload', got: " + aSide.btnLabel);
       // Copy A tries to save: must be refused; B's data and rev stay intact.
       const refused = await pageA.evaluate(() => saveLocal());
       assert(refused === false, "copy A's stale save should be refused (saveLocal returns false), got " + refused);
