@@ -72,19 +72,28 @@ const hasRestore = await page.evaluate(() => !!document.querySelector('button[da
 check("Add1 'Restore last week's plan' shows on Proteins", hasRestore);
 check("Add1 'Restore last week's plan' shows on Proteins", hasRestore);
 // DOM click (not a puppeteer coordinate click): the Restore button only
-// renders after a re-render. Guard: it must be visible and hit-testable —
+// renders after a re-render. Per Tab's adjudication (issue #1): scroll it
+// into view first — below the fold on a scrolling page is normal — wait one
+// frame, then run the guard: it must be visible and hit-testable —
 // what document.elementFromPoint at its center returns (or a child of it).
-const hitOk = await page.evaluate(() => {
+// "covered" still fails even after scrolling (that would be a real bug).
+// Measurement: button top vs innerHeight BEFORE scrolling, so the report
+// can say where the control renders right after Clear.
+const restoreRes = await page.evaluate(async () => {
   const b = document.querySelector('button[data-act="restore-cleared"]');
-  if (!b) return "missing";
+  if (!b) return { res: "missing", measure: "none" };
+  const r0 = b.getBoundingClientRect();
+  const measure = "width=" + innerWidth + " preScrollTop=" + Math.round(r0.top) + " innerHeight=" + innerHeight;
+  b.scrollIntoView({ block: "center" });
+  await new Promise(r => requestAnimationFrame(r));
   const r = b.getBoundingClientRect();
-  if (r.width <= 0 || r.height <= 0) return "invisible";
+  if (r.width <= 0 || r.height <= 0) return { res: "invisible", measure };
   const el = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
-  if (el !== b && !b.contains(el)) return "covered:" + (el ? el.tagName : "none");
+  if (el !== b && !b.contains(el)) return { res: "covered:" + (el ? el.tagName : "none"), measure };
   b.click();
-  return "ok";
+  return { res: "ok", measure };
 });
-check("Add1 Restore button visible + hit-testable", hitOk === "ok", hitOk);
+check("Add1 Restore button visible + hit-testable", restoreRes.res === "ok", restoreRes.res + " [" + restoreRes.measure + "]");
 await sleep(400);
 cells = await planWeekCells(page, nextSun);
 const cardsAfter = await page.evaluate(() => document.querySelectorAll(".meal-card").length);

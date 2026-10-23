@@ -207,19 +207,28 @@ try {
       await gotoPlan(page, tw, "pro");
       await page.waitForSelector('[data-act="restore-cleared"]', { timeout: 5000 });
       // DOM click (not a puppeteer coordinate click): the Restore button
-      // only renders after a re-render. Guard: visible and hit-testable —
-      // what document.elementFromPoint at its center returns (or a child).
-      const hitOk = await page.evaluate(() => {
+      // only renders after a re-render. Per Tab's adjudication (issue #1):
+      // scroll it into view first (below the fold is normal), wait one
+      // frame, then the guard: visible and hit-testable — what
+      // document.elementFromPoint at its center returns (or a child).
+      // "covered" still fails even after scrolling. Measurement logged
+      // before scrolling so the report can state where it renders post-Clear.
+      const restoreRes = await page.evaluate(async () => {
         const b = document.querySelector('[data-act="restore-cleared"]');
-        if (!b) return "missing";
+        if (!b) return { res: "missing", measure: "none" };
+        const r0 = b.getBoundingClientRect();
+        const measure = "width=" + innerWidth + " preScrollTop=" + Math.round(r0.top) + " innerHeight=" + innerHeight;
+        b.scrollIntoView({ block: "center" });
+        await new Promise(r => requestAnimationFrame(r));
         const r = b.getBoundingClientRect();
-        if (r.width <= 0 || r.height <= 0) return "invisible";
+        if (r.width <= 0 || r.height <= 0) return { res: "invisible", measure };
         const el = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
-        if (el !== b && !b.contains(el)) return "covered:" + (el ? el.tagName : "none");
+        if (el !== b && !b.contains(el)) return { res: "covered:" + (el ? el.tagName : "none"), measure };
         b.click();
-        return "ok";
+        return { res: "ok", measure };
       });
-      assert(hitOk === "ok", "Restore button visible + hit-testable, got: " + hitOk);
+      console.log("[restore-measure] r3.b6 " + restoreRes.measure);
+      assert(restoreRes.res === "ok", "Restore button visible + hit-testable, got: " + restoreRes.res + " [" + restoreRes.measure + "]");
       await wait(200);
       const res = await page.evaluate((w) => ({ has: planHasMeals(w) }), tw);
       assert(res.has, "restore should bring the meals back");
