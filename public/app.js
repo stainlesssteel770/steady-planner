@@ -292,6 +292,114 @@ function scoreDay(date) {
     || extraCount(date, "snackX") > 0 || extraCount(date, "drinkX") > 0;
   return { score: score, of: of, items: items, logged: logged, ratio: of ? score / of : 0, preRest: pre };
 }
+/* v27a item 1: Today IS the check-in — one question at a time, inline.
+   The question list mirrors scoreDay's applicability exactly (same
+   day-type rules as the tick-disable logic): pre-rest keeps daytime
+   habits only, a minor fast keeps dinner + non-meal habits, Tisha B'Av
+   keeps non-meal habits only. Order follows the v25 Food/Drinks/Body
+   grouping. Steps and workout are Yes/No questions too; their dedicated
+   controls stay on the checklist. */
+function checkinQuestions(date) {
+  if (isRest(date)) return [];
+  var fastD = isFastDay(date), tishaD = isTishaBav(date), pre = isPreRest(date);
+  var qs = [];
+  var push = function (field, text) { qs.push({ field: field, text: text }); };
+  var prot = tishaD ? [] : fastD ? ["proteinD"] : pre ? ["proteinB", "proteinL"] : ["proteinB", "proteinL", "proteinD"];
+  var protText = { proteinB: "Protein at breakfast?", proteinL: "Protein at lunch?", proteinD: "Protein at dinner?" };
+  prot.forEach(function (f) { push(f, protText[f]); });
+  var veg = tishaD ? [] : fastD ? ["vegD"] : pre ? ["vegL"] : ["vegL", "vegD"];
+  var vegText = { vegL: "Veggies at lunch?", vegD: "Veggies at dinner?" };
+  veg.forEach(function (f) { push(f, vegText[f]); });
+  if (!pre && !fastD && !tishaD) push("mealsPlan", "3 meals + 1 afternoon snack?");
+  if (!pre) { push("treat", "One portioned treat?"); push("kitchenClosed", "Kitchen closed after the treat?"); }
+  push("drinks", "Seltzer or water?");
+  push("noAlcohol", "No alcohol?");
+  push("steps", "Hit your step goal?");
+  if (!fastD && !tishaD) push("workout", "Workout done?");
+  if (!pre) push("bed", "In bed by midnight?");
+  return qs;
+}
+/* Answer state of one flow question: "yes" (done), "no" (explicitly
+   answered No — v27a item 4 semantics), or null (unanswered). Steps:
+   done at/above goal, No recorded in the additive stepsNo field so a
+   partial count is never erased. Workout: a rest day counts as
+   addressed, matching scoreDay. */
+function checkinAnswer(date, q) {
+  if (q.field === "steps") {
+    var st = getDayF(date, "steps");
+    if (typeof st === "number" && st >= getSetting("stepGoal")) return "yes";
+    if (getDayF(date, "stepsNo")) return "no";
+    return null;
+  }
+  if (q.field === "workout") {
+    if (getDayF(date, "workout") || getDayF(date, "workoutOff")) return "yes";
+    if (getDayF(date, "workout") === false) return "no";
+    return null;
+  }
+  var v = getDayF(date, q.field);
+  if (v === true) return "yes";
+  if (v === false) return "no";
+  return null;
+}
+/* Flow position, kept in ui.checkin (in-memory except the done flag,
+   which is saved so a completed day stays on its checklist after a
+   reload). queue = list indices to visit; pass 1 visits all, pass 2
+   visits only the skipped ones, once. */
+function checkinFlowState(date, qs) {
+  var c = ui.checkin;
+  if (!c || c.date !== date || !c.queue || typeof c.qi !== "number") {
+    /* Auto-entry is today-only: an earlier day opens on its checklist,
+       and only an explicit Check-in (checkinOpen, which stores state for
+       that date) puts it into flow mode. */
+    if (date !== todayStr) return { mode: "done" };
+    var first = -1;
+    for (var i = 0; i < qs.length; i++) if (checkinAnswer(date, qs[i]) === null) { first = i; break; }
+    if (first < 0) return { mode: "done" };
+    ui.checkin = { date: date, queue: qs.map(function (_, i) { return i; }), qi: first, pass: 1, skipped: [], done: false };
+    c = ui.checkin;
+  }
+  if (c.done || c.qi >= c.queue.length) return { mode: "done" };
+  return { mode: "flow", queue: c.queue, qi: c.qi, pass: c.pass || 1, skipped: c.skipped || [] };
+}
+function checkinOpen(date) {
+  var qs = checkinQuestions(date), first = 0;
+  for (var i = 0; i < qs.length; i++) if (checkinAnswer(date, qs[i]) === null) { first = i; break; }
+  ui.checkin = { date: date, queue: qs.map(function (_, i) { return i; }), qi: first, pass: 1, skipped: [], done: false };
+  saveUi();
+  render(true);
+}
+function checkinAdvance(wasSkip) {
+  var date = selDate, qs = checkinQuestions(date);
+  var c = ui.checkin; if (!c || c.date !== date || !c.queue) return;
+  if (wasSkip && c.pass === 1) c.skipped.push(c.queue[c.qi]);
+  c.qi++;
+  if (c.qi >= c.queue.length) {
+    if (c.pass === 1 && c.skipped.length) { c.queue = c.skipped.slice(); c.qi = 0; c.pass = 2; c.skipped = []; }
+    else { c.done = true; saveUi(); }
+  }
+  render(true);
+}
+function checkinAnswerClick(yes) {
+  var date = selDate, qs = checkinQuestions(date);
+  var c = ui.checkin; if (!c || c.date !== date || !c.queue) return;
+  var q = qs[c.queue[c.qi]]; if (!q) return;
+  /* Silent writes + one render: opDay's own render would be the
+     completing render (moment shown), and checkinAdvance's render would
+     then be a second render with the moment already consumed. Writing
+     silently and rendering once keeps the v26 completion moment intact. */
+  if (q.field === "steps") {
+    if (yes) {
+      var cur = getDayF(date, "steps"), goal = getSetting("stepGoal");
+      opDaySilent(date, "steps", Math.max(typeof cur === "number" ? cur : 0, goal), { silent: true });
+      opDaySilent(date, "stepsNo", false, { silent: true });
+    } else opDaySilent(date, "stepsNo", true, { silent: true });
+  } else if (q.field === "workout") {
+    if (yes) { opDaySilent(date, "workout", true, { silent: true }); opDaySilent(date, "workoutOff", false, { silent: true }); }
+    else { opDaySilent(date, "workout", false, { silent: true }); opDaySilent(date, "workoutOff", false, { silent: true }); }
+  } else opDaySilent(date, q.field, yes, { silent: true });
+  statusAfterEdit();
+  checkinAdvance(false);
+}
 function workoutsInWeek(anyDate) {
   var sun = weekSunday(anyDate), n = 0;
   for (var i = 0; i < 7; i++) if (getDayF(addDays(sun, i), "workout")) n++;
@@ -573,6 +681,32 @@ function renderToday() {
     if (lines || tLines) h += '<section class="card"><h3>On the plan</h3>' + lines + tLines + '<button class="link-btn" data-act="goto-plan-week">Week →</button></section>';
   }
 
+  /* v27a item 1: the inline check-in. While today has unanswered
+     questions, Today shows the current question here — no dialog, no
+     card to tap first — and the habit checklist stays hidden (no "see
+     all" list). Once everything is answered or skipped through, the
+     score + grouped checklist show, with Check-in + Forward buttons.
+     Earlier days open on their checklist, with the same two buttons. */
+  var flowQs = checkinQuestions(date);
+  var flowSt = checkinFlowState(date, flowQs);
+  var flowActive = flowSt.mode === "flow";
+  if (flowActive) {
+    var fq = flowQs[flowSt.queue[flowSt.qi]];
+    var fans = checkinAnswer(date, fq);
+    h += '<section class="card checkin-card"><div class="checkin-progress">' + (flowSt.queue[flowSt.qi] + 1) + ' of ' + flowQs.length + '</div>' +
+      '<div class="checkin-q">' + esc(fq.text) + '</div>' +
+      (fq.field === "steps" ? '<div class="habit-sub">Goal ' + getSetting("stepGoal").toLocaleString("en-US") + (typeof getDayF(date, "steps") === "number" ? ' · logged ' + getDayF(date, "steps").toLocaleString("en-US") : '') + '</div>' : '') +
+      '<div class="ticks">' +
+      '<button class="tick' + (fans === "yes" ? " on" : "") + '" data-act="checkin-yes">Yes</button>' +
+      '<button class="tick' + (fans === "no" ? " on" : "") + '" data-act="checkin-no">No</button>' +
+      (flowSt.qi > 0 ? '<button class="tick" data-act="checkin-back">Back</button>' : '') +
+      '<button class="tick" data-act="checkin-skip">Skip</button></div></section>';
+  } else {
+    h += '<section class="card checkin-done"><div class="row spread"><div><b>' + (date === todayStr ? 'Check-in done · ' + sc.score + '/' + sc.of : esc(longDate(date))) + '</b></div>' +
+      '<div class="ticks"><button class="tick" data-act="checkin-open">Check-in</button>' +
+      '<button class="tick" data-act="checkin-forward">Forward</button></div></div></section>';
+  }
+
   // Habits (extra counters for #3/#7: see the global EXTRAS map)
   /* v25 item 3: the 10 habits render in three labeled groups — Food,
      Drinks, Body. Numbering (global idx), ticks, extras and scoring are
@@ -582,8 +716,9 @@ function renderToday() {
     { label: "Drinks", ids: ["drinks", "noAlcohol"] },
     { label: "Body", ids: ["steps", "workout", "bed"] }
   ];
-  HABIT_GROUPS.forEach(function (grp) {
-  h += '<section class="card"><h3 class="habit-group">' + grp.label + '</h3>';
+  HABIT_GROUPS.forEach(function (grp, gi) {
+  if (flowActive) return;
+  h += '<section class="card"' + (gi === 0 ? ' id="habitGroups"' : '') + '><h3 class="habit-group">' + grp.label + '</h3>';
   STEADY.habits.forEach(function (hab, idx) {
     if (grp.ids.indexOf(hab.id) < 0) return;
     var greyed = pre && hab.evening;
@@ -1596,6 +1731,15 @@ document.addEventListener("click", function (ev) {
   if (act === "day-next") { if (selDate < todayStr) selDate = addDays(selDate, 1); render(true); return; }
   if (act === "dot") { selDate = el.getAttribute("data-date"); render(true); return; }
   if (act === "goto-today") { selDate = todayStr; render(true); return; }
+  if (act === "checkin-yes" || act === "checkin-no") { checkinAnswerClick(act === "checkin-yes"); return; }
+  if (act === "checkin-skip") { checkinAdvance(true); return; }
+  if (act === "checkin-back") { var cb = ui.checkin; if (cb && cb.date === selDate && cb.qi > 0) { cb.qi--; render(true); } return; }
+  if (act === "checkin-open") { checkinOpen(selDate); return; }
+  if (act === "checkin-forward") {
+    if (selDate < todayStr) { selDate = addDays(selDate, 1); render(true); }
+    else { var hb = document.getElementById("habitGroups"); if (hb) hb.scrollIntoView(); }
+    return;
+  }
   if (act === "tm-off") { tmTurnOff(); return; } /* TESTMODE */
   if (act === "tick") {
     var f = el.getAttribute("data-f");
@@ -2006,7 +2150,7 @@ function sanitizeBackup(parsed) {
     if (ts === null) ts = 0;
     return { v: raw.v, ts: ts };
   }
-  var DAY_BOOL = ["proteinB", "proteinL", "proteinD", "vegL", "vegD", "mealsPlan", "treat", "kitchenClosed", "drinks", "noAlcohol", "workout", "workoutOff", "bed", "seconds", "caughtUp"];
+  var DAY_BOOL = ["proteinB", "proteinL", "proteinD", "vegL", "vegD", "mealsPlan", "treat", "kitchenClosed", "drinks", "noAlcohol", "workout", "workoutOff", "bed", "seconds", "caughtUp", "stepsNo"];
   var DAY_NUM = { steps: [0, 100000], weight: [50, 700], waist: [10, 90], water: [0, 100000], snackX: [0, 50], drinkX: [0, 50] };
   var DAY_STR = ["workoutNote", "note"];
   function cleanDayField(name, c) {

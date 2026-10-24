@@ -5,7 +5,8 @@
              bf7 (copy fixes) | bf8 (screen-reader labels) |
              bf10 (calendar data) | bf11 (fast / Nine Days rules) |
              v25i1 (compact Today hero) | v25i2 (On-the-plan above habits) |
-             v25i3 (habit group sections) | v25i4 (sticky score strip)
+             v25i3 (habit group sections) | v25i4 (sticky score strip) |
+             v27a1 (Today inline check-in flow)
    Usage: node test-r14.mjs [section|all]   (WIDTH env, default 390) */
 import puppeteer from "puppeteer-core";
 
@@ -269,11 +270,23 @@ try {
   if (run("bf6")) {
     await test("r14.bf6.failed-save-status-is-honest", async () => {
       const page = await freshPage(browser);
-      // Pages in this suite share one browser profile, so drive the app to
-      // a known state first: no inherited TESTMODE fake, Today tab shown.
-      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+      // v27a migration: Today is now the inline check-in, and the real
+      // date (Saturday) is a rest screen — so pin a Wednesday fake and
+      // drive the edit through the flow's real Yes button. Intent
+      // unchanged: a real edit through a real control must report a
+      // failed save honestly, with Mark's wording + Try again.
+      await page.evaluate(() => { try { localStorage.setItem("steady.testmode", JSON.stringify({ fake: "2026-10-21", lastSeen: Date.now() })); } catch (e) {} });
       await page.reload({ waitUntil: "networkidle0" });
       await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
+      await page.evaluate(() => {
+        // Seed everything answered except drinks, so the flow opens on it.
+        const f = {};
+        ["proteinB", "proteinL", "proteinD", "vegL", "vegD", "mealsPlan", "treat", "kitchenClosed", "noAlcohol", "workoutOff", "bed"].forEach((k) => { f[k] = { v: true, ts: 1 }; });
+        f.steps = { v: 9000, ts: 1 };
+        state.days["2026-10-21"] = { f };
+        saveLocal(); try { delete ui.checkin; } catch (e) {}
+        ui.tab = "today"; saveUi(); render(true);
+      });
       await page.evaluate(() => {
         const orig = Storage.prototype.setItem;
         window.__origSetItem = orig;
@@ -283,10 +296,10 @@ try {
         };
         ui.tab = "today"; saveUi(); render(true);
       });
-      // A real edit through a real control: tick a habit on Today. (The
-      // "drinks" tick is used because no day rule ever disables it.)
-      await page.waitForSelector('[data-act="tick"][data-f="drinks"]', { timeout: 15000 });
-      await page.evaluate(() => document.querySelector('[data-act="tick"][data-f="drinks"]').click());
+      // A real edit through a real control: answer the drinks question Yes.
+      // (The "drinks" question is used because no day rule ever removes it.)
+      await page.waitForSelector('[data-act="checkin-yes"]', { timeout: 15000 });
+      await page.evaluate(() => document.querySelector('[data-act="checkin-yes"]').click());
       await wait(500);
       const badStatus = await page.evaluate(() => document.getElementById("syncStatus").textContent);
       assert(badStatus !== "Saved on this phone", "status must not claim a save that failed, got: '" + badStatus + "'");
@@ -302,6 +315,8 @@ try {
       await wait(500);
       const okStatus = await page.evaluate(() => document.getElementById("syncStatus").textContent);
       assert(okStatus === "Saved on this phone", "control: a successful retry should show the saved status, got: '" + okStatus + "'");
+      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
       await page.close();
     });
   }
@@ -426,13 +441,21 @@ try {
         return { locked: lockedBtn && lockedBtn.getAttribute("aria-pressed"), free: freeBtn && freeBtn.getAttribute("aria-pressed") };
       }, nxt);
       assert(lock.locked === "true" && lock.free === "false", "lock buttons should expose aria-pressed, got: " + JSON.stringify(lock));
-      // Check-in inputs carry explicit labels.
+      // Check-in inputs carry explicit labels. (v27a migration: pin a
+      // Wednesday fake — on a real Saturday the weigh-in inputs don't
+      // render because Today is a rest screen. TESTMODE is read at load,
+      // so the fake needs a reload to take effect.)
+      await page.evaluate(() => { try { localStorage.setItem("steady.testmode", JSON.stringify({ fake: "2026-10-21", lastSeen: Date.now() })); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
       const ci = await page.evaluate(() => {
         ui.tab = "today"; saveUi(); render(true);
         const w = document.getElementById("ciWeight"), wa = document.getElementById("ciWaist");
         return { w: w && w.getAttribute("aria-label"), wa: wa && wa.getAttribute("aria-label") };
       });
       assert(ci.w && ci.wa, "weight/waist inputs should have aria-labels, got: " + JSON.stringify(ci));
+      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
       await page.close();
     });
   }
@@ -610,12 +633,26 @@ try {
       await page.reload({ waitUntil: "networkidle0" });
       await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
       await wait(350);
+      // v27a migration: Today is now the inline check-in, so the
+      // breakfast/lunch questions must be ABSENT from the flow (not
+      // merely disabled ticks), and the dinner questions must lead it.
       const res = await page.evaluate(() => {
-        const dis = (f) => { const b = document.querySelector('[data-act="tick"][data-f="' + f + '"]'); return b ? b.disabled : null; };
-        return { pB: dis("proteinB"), pL: dis("proteinL"), pD: dis("proteinD"), vL: dis("vegL"), vD: dis("vegD") };
+        const card = document.querySelector(".checkin-card");
+        const q = card ? card.querySelector(".checkin-q") : null;
+        return {
+          card: !!card,
+          firstQ: q ? q.textContent.trim() : null,
+          fields: checkinQuestions("2027-07-22").map((x) => x.field)
+        };
       });
-      assert(res.pB === true && res.pL === true && res.vL === true, "breakfast/lunch meal questions should be skipped on a minor fast, got: " + JSON.stringify(res));
-      assert(res.pD === false && res.vD === false, "the dinner (break-fast) questions should stay live, got: " + JSON.stringify(res));
+      assert(res.card, "a minor fast day should still show the check-in flow");
+      assert(res.firstQ === "Protein at dinner?", "the fast-day flow should lead with the dinner question, got: " + JSON.stringify(res.firstQ));
+      assert(res.fields.indexOf("proteinB") < 0 && res.fields.indexOf("proteinL") < 0 && res.fields.indexOf("vegL") < 0,
+        "breakfast/lunch meal questions should be skipped on a minor fast, got: " + JSON.stringify(res.fields));
+      assert(res.fields.indexOf("proteinD") >= 0 && res.fields.indexOf("vegD") >= 0,
+        "the dinner (break-fast) questions should stay live, got: " + JSON.stringify(res.fields));
+      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
       await page.close();
     });
   }
@@ -624,6 +661,11 @@ try {
   if (run("v25i1")) {
     await test("r14.v25i1.compact-hero-summary-row", async () => {
       const page = await freshPage(browser);
+      // v27a migration: pin a Wednesday fake — on a real Saturday Today
+      // is a rest screen with no score line.
+      await page.evaluate(() => { try { localStorage.setItem("steady.testmode", JSON.stringify({ fake: "2026-10-21", lastSeen: Date.now() })); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
       await page.evaluate(() => { ui.tab = "today"; saveUi(); render(true); });
       await wait(300);
       const res = await page.evaluate(() => {
@@ -652,6 +694,8 @@ try {
       assert(res.heroH !== null && res.heroH < 245, "hero should be compact (was ~280px before), got " + res.heroH);
       assert(res.dots === 7, "week dots should still render, got " + res.dots);
       assert(res.dotsMarginTop !== "14px", "week dots margins should be tightened, marginTop=" + res.dotsMarginTop);
+      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
       await page.close();
     });
   }
@@ -660,7 +704,18 @@ try {
   if (run("v25i2")) {
     await test("r14.v25i2.plan-card-above-habits", async () => {
       const page = await freshPage(browser);
+      // v27a migration: pin a Wednesday fake (a real Saturday is a rest
+      // screen) and seed the day fully answered, so the checklist renders
+      // below the plan card instead of the check-in flow.
+      await page.evaluate(() => { try { localStorage.setItem("steady.testmode", JSON.stringify({ fake: "2026-10-21", lastSeen: Date.now() })); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
       await page.evaluate(() => {
+        const f = {};
+        ["proteinB", "proteinL", "proteinD", "vegL", "vegD", "mealsPlan", "treat", "kitchenClosed", "drinks", "noAlcohol", "workoutOff", "bed"].forEach((k) => { f[k] = { v: true, ts: 1 }; });
+        f.steps = { v: 9000, ts: 1 };
+        state.days["2026-10-21"] = { f };
+        try { delete ui.checkin; } catch (e) {}
         ui.tab = "today"; saveUi(); render(true);
         // Seed today's dinner from the data itself (first dinner-capable meal).
         const wk = weekSunday(todayStr), dow = dowOf(todayStr);
@@ -685,6 +740,8 @@ try {
       await wait(300);
       const tab = await page.evaluate(() => ui.tab);
       assert(tab === "plan", "the Week link should still open the plan tab, got: " + tab);
+      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
       await page.close();
     });
   }
@@ -694,12 +751,20 @@ try {
     await test("r14.v25i3.habit-groups", async () => {
       const page = await freshPage(browser);
       // Shared profile: an earlier section may leave a TESTMODE fake (e.g. a
-      // fast day, which disables proteinB). Clear it and reload for the real
-      // date before asserting tick behavior.
-      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+      // fast day, which disables proteinB). v27a migration: pin a Wednesday
+      // fake (a real Saturday is a rest screen) and seed the day fully
+      // answered, so the checklist renders instead of the check-in flow.
+      await page.evaluate(() => { try { localStorage.setItem("steady.testmode", JSON.stringify({ fake: "2026-10-21", lastSeen: Date.now() })); } catch (e) {} });
       await page.reload({ waitUntil: "networkidle0" });
       await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
-      await page.evaluate(() => { ui.tab = "today"; saveUi(); render(true); });
+      await page.evaluate(() => {
+        const f = {};
+        ["proteinB", "proteinL", "proteinD", "vegL", "vegD", "mealsPlan", "treat", "kitchenClosed", "drinks", "noAlcohol", "workoutOff", "bed"].forEach((k) => { f[k] = { v: true, ts: 1 }; });
+        f.steps = { v: 9000, ts: 1 };
+        state.days["2026-10-21"] = { f };
+        saveLocal(); try { delete ui.checkin; } catch (e) {}
+        ui.tab = "today"; saveUi(); render(true);
+      });
       await wait(300);
       const res = await page.evaluate(() => {
         const groups = Array.from(document.querySelectorAll(".habit-group")).map((el) => el.textContent.trim());
@@ -723,6 +788,8 @@ try {
       await wait(300);
       const flags = await page.evaluate(() => ({ p: !!getDayF(todayStr, "proteinB"), d: !!getDayF(todayStr, "drinks"), w: !!getDayF(todayStr, "workoutOff") }));
       assert(flags.p === !before.p && flags.d === !before.d && flags.w === !before.w, "ticks in all three groups should toggle, before: " + JSON.stringify(before) + " after: " + JSON.stringify(flags));
+      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
       await page.close();
     });
   }
@@ -732,10 +799,20 @@ try {
     await test("r14.v25i4.sticky-score-strip", async () => {
       const page = await freshPage(browser);
       // State-isolate like bf6/v25i3 (shared profile, TESTMODE leaks).
-      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+      // v27a migration: pin a Wednesday fake (a real Saturday is a rest
+      // screen, which has no score strip) and seed the day fully answered,
+      // so the checklist ticks exist for the strip-update step.
+      await page.evaluate(() => { try { localStorage.setItem("steady.testmode", JSON.stringify({ fake: "2026-10-21", lastSeen: Date.now() })); } catch (e) {} });
       await page.reload({ waitUntil: "networkidle0" });
       await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
-      await page.evaluate(() => { ui.tab = "today"; saveUi(); render(true); });
+      await page.evaluate(() => {
+        const f = {};
+        ["proteinB", "proteinL", "proteinD", "vegL", "vegD", "mealsPlan", "treat", "kitchenClosed", "drinks", "noAlcohol", "workoutOff", "bed"].forEach((k) => { f[k] = { v: true, ts: 1 }; });
+        f.steps = { v: 9000, ts: 1 };
+        state.days["2026-10-21"] = { f };
+        saveLocal(); try { delete ui.checkin; } catch (e) {}
+        ui.tab = "today"; saveUi(); render(true);
+      });
       await wait(300);
       const res = await page.evaluate(() => {
         const strip = document.querySelector(".score-strip");
@@ -771,6 +848,8 @@ try {
         return { text: strip ? strip.textContent.trim() : null, exp: sc ? sc.score + "/" + sc.of : null };
       });
       assert(after.text && after.text.indexOf(after.exp) === 0, "strip should reflect the score after a tick, got: " + JSON.stringify(after));
+      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
       await page.close();
     });
   }
@@ -903,7 +982,9 @@ try {
     await test("r14.v26i2.today-meal-accordion", async () => {
       const page = await freshPage(browser);
       // State-isolate like bf6/v25i3 (shared profile, TESTMODE leaks).
-      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+      // v27a migration: pin a Wednesday fake — a real Saturday is a rest
+      // screen with no On-the-plan card.
+      await page.evaluate(() => { try { localStorage.setItem("steady.testmode", JSON.stringify({ fake: "2026-10-21", lastSeen: Date.now() })); } catch (e) {} });
       await page.reload({ waitUntil: "networkidle0" });
       await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
       // Seed today's lunch + dinner from the data (meals with a method and
@@ -953,6 +1034,8 @@ try {
       await wait(300);
       st = await state1();
       assert(!st.detail, "tapping the open meal again should collapse it");
+      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
       await page.close();
     });
   }
@@ -971,14 +1054,20 @@ try {
         ["proteinB", "proteinL", "proteinD", "vegL", "vegD", "mealsPlan", "treat", "kitchenClosed", "drinks", "noAlcohol", "workoutOff"].forEach((k) => { f[k] = { v: true, ts: 1 }; });
         f.steps = { v: 9000, ts: 1 };
         state.days["2026-10-21"] = { f };
-        saveLocal(); ui.tab = "today"; saveUi(); render(true);
+        saveLocal(); try { delete ui.checkin; } catch (e) {}
+        try { delete ui.celebratedDate; } catch (e) {}
+        ui.tab = "today"; saveUi(); render(true);
         const sc = scoreDay("2026-10-21");
         return { score: sc.score, of: sc.of, celebrated: ui.celebratedDate || null, stripMoment: !!document.querySelector(".score-strip.moment") };
       });
       assert(pre.of === 10 && pre.score === 9, "precondition: seeded day should be 9/10, got " + JSON.stringify(pre));
       assert(!pre.stripMoment, "no moment before the day completes");
-      // The final tick, via the real button.
-      await page.evaluate(() => document.querySelector('[data-act="tick"][data-f="bed"]').click());
+      // The final answer, via the flow's real Yes button (v27a: the
+      // checklist tick is hidden while the flow is active, and the bed
+      // question is the only unanswered one, so the flow opens on it).
+      const flowQ = await page.evaluate(() => { const q = document.querySelector(".checkin-q"); return q ? q.textContent.trim() : null; });
+      assert(flowQ === "In bed by midnight?", "the flow should open on the one unanswered question (bed), got: " + JSON.stringify(flowQ));
+      await page.evaluate(() => document.querySelector('[data-act="checkin-yes"]').click());
       await wait(350);
       const post = await page.evaluate(() => {
         const strip = document.querySelector(".score-strip");
@@ -1013,6 +1102,183 @@ try {
       await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
       await page.reload({ waitUntil: "networkidle0" });
       await page.close();
+    });
+  }
+  if (run("v27a1")) {
+    const setFake = async (page, fake) => {
+      await page.evaluate((f) => { try { localStorage.setItem("steady.testmode", JSON.stringify({ fake: f, lastSeen: Date.now() })); } catch (e) {} }, fake);
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
+    };
+    const clearFake = async (page) => {
+      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.close();
+    };
+    const click = async (page, sel) => { await page.evaluate((s) => document.querySelector(s).click(), sel); await wait(350); };
+    // r14 sections share one browser profile: reset the day record and any
+    // stored flow state so earlier tests cannot leak answers into this one.
+    const resetDay = async (page, date) => page.evaluate((d) => {
+      state.days[d] = { f: {} }; saveLocal();
+      try { delete ui.checkin; } catch (e) {}
+      ui.tab = "today"; saveUi(); render(true);
+    }, date);
+    const flowState = (page) => page.evaluate(() => {
+      const card = document.querySelector(".checkin-card");
+      const q = card ? card.querySelector(".checkin-q") : null;
+      const prog = card ? card.querySelector(".checkin-progress") : null;
+      return {
+        card: !!card,
+        q: q ? q.textContent.trim() : null,
+        prog: prog ? prog.textContent.trim() : null,
+        back: !!(card && card.querySelector('[data-act="checkin-back"]')),
+        skip: !!(card && card.querySelector('[data-act="checkin-skip"]')),
+        yes: !!(card && card.querySelector('[data-act="checkin-yes"]')),
+        no: !!(card && card.querySelector('[data-act="checkin-no"]')),
+        habits: !!document.querySelector(".habit"),
+        checkinBtn: !!document.querySelector('[data-act="checkin-open"]'),
+        forwardBtn: !!document.querySelector('[data-act="checkin-forward"]'),
+        selDate
+      };
+    });
+
+    await test("r14.v27a1.flow-nav-skip-loop-complete", async () => {
+      const page = await freshPage(browser);
+      await setFake(page, "2026-10-21"); // Wednesday, plain day
+      await resetDay(page, "2026-10-21");
+      let s = await flowState(page);
+      assert(s.card, "today with unanswered questions should show the inline question card, got " + JSON.stringify(s));
+      assert(s.q === "Protein at breakfast?", "first question should be breakfast protein, got " + JSON.stringify(s.q));
+      assert(s.prog === "1 of 13", "progress should be 1 of 13 on a plain day, got " + JSON.stringify(s.prog));
+      assert(s.skip && s.yes && s.no, "Q1 needs Yes/No/Skip");
+      assert(!s.back, "Q1 must show Skip only, no Back");
+      assert(!s.forwardBtn, "Forward must not appear during today's active flow");
+      assert(!s.habits, "the habit checklist must be hidden while the flow is active");
+      // Yes advances to Q2 with Back.
+      await click(page, '[data-act="checkin-yes"]');
+      s = await flowState(page);
+      assert(s.q === "Protein at lunch?" && s.prog === "2 of 13", "Yes should advance to Q2, got " + JSON.stringify(s));
+      assert(s.back, "Q2 onward must show Back");
+      // Back returns to Q1; Skip it; Q2 again.
+      await click(page, '[data-act="checkin-back"]');
+      s = await flowState(page);
+      assert(s.q === "Protein at breakfast?" && s.prog === "1 of 13", "Back should return to Q1, got " + JSON.stringify(s));
+      await click(page, '[data-act="checkin-skip"]');
+      s = await flowState(page);
+      assert(s.q === "Protein at lunch?", "Skip should move to Q2, got " + JSON.stringify(s));
+      // Answer Q2..Q13 Yes (12 clicks): the loop must return to skipped Q1.
+      for (let i = 0; i < 12; i++) await click(page, '[data-act="checkin-yes"]');
+      s = await flowState(page);
+      assert(s.card && s.q === "Protein at breakfast?", "after the last question the loop must return to skipped Q1, got " + JSON.stringify(s));
+      // Answer looped Q1: completed state.
+      await click(page, '[data-act="checkin-yes"]');
+      s = await flowState(page);
+      assert(!s.card && s.habits, "after the loop the checklist should show, got " + JSON.stringify(s));
+      assert(s.checkinBtn && s.forwardBtn, "completed today needs Check-in + Forward buttons");
+      const done = await page.evaluate(() => {
+        const sc = scoreDay("2026-10-21");
+        const banner = document.querySelector(".banner.full");
+        return { score: sc.score, of: sc.of, banner: banner ? banner.textContent.trim() : null, proteinB: getDayF("2026-10-21", "proteinB"), steps: getDayF("2026-10-21", "steps") };
+      });
+      assert(done.score === 10 && done.of === 10, "all-Yes day should score 10/10, got " + JSON.stringify(done));
+      assert(done.banner === "All 10. That's a full day.", "full-day banner copy unchanged, got " + JSON.stringify(done.banner));
+      assert(done.steps === 7500, "steps Yes should write the default goal, got " + JSON.stringify(done.steps));
+      // Check-in reopens at Q1 (nothing unanswered).
+      await click(page, '[data-act="checkin-open"]');
+      s = await flowState(page);
+      assert(s.card && s.q === "Protein at breakfast?", "Check-in should reopen at Q1 when all answered, got " + JSON.stringify(s));
+      await clearFake(page);
+    });
+
+    await test("r14.v27a1.skip-twice-stays-unanswered", async () => {
+      const page = await freshPage(browser);
+      await setFake(page, "2026-10-21");
+      await resetDay(page, "2026-10-21");
+      for (let i = 0; i < 12; i++) await click(page, '[data-act="checkin-yes"]');
+      // Q13 (bed): skip, loop back, skip again -> completed with bed unanswered.
+      await click(page, '[data-act="checkin-skip"]');
+      let s = await flowState(page);
+      assert(s.card && s.q === "In bed by midnight?", "loop should return to skipped bed question, got " + JSON.stringify(s));
+      await click(page, '[data-act="checkin-skip"]');
+      s = await flowState(page);
+      assert(!s.card && s.habits, "after the second skip the checklist should show");
+      const sc = await page.evaluate(() => { const r = scoreDay("2026-10-21"); return { score: r.score, of: r.of, bed: getDayF("2026-10-21", "bed") }; });
+      assert(sc.score === 9 && sc.bed === undefined, "twice-skipped bed stays unanswered at 9/10, got " + JSON.stringify(sc));
+      await click(page, '[data-act="checkin-open"]');
+      s = await flowState(page);
+      assert(s.card && s.q === "In bed by midnight?", "Check-in should reopen at the first unanswered question, got " + JSON.stringify(s));
+      await clearFake(page);
+    });
+
+    await test("r14.v27a1.earlier-day-checklist-and-forward", async () => {
+      const page = await freshPage(browser);
+      await setFake(page, "2026-10-21");
+      await resetDay(page, "2026-10-20");
+      await resetDay(page, "2026-10-21");
+      await click(page, '[data-act="dot"][data-date="2026-10-20"]');
+      let s = await flowState(page);
+      assert(!s.card && s.habits && s.selDate === "2026-10-20", "an earlier day should show its checklist, not the flow, got " + JSON.stringify(s));
+      assert(s.forwardBtn && s.checkinBtn, "an earlier day needs Forward + Check-in buttons");
+      await click(page, '[data-act="checkin-forward"]');
+      s = await flowState(page);
+      assert(s.selDate === "2026-10-21" && s.card, "Forward should advance to today and its flow, got " + JSON.stringify(s));
+      await click(page, '[data-act="dot"][data-date="2026-10-20"]');
+      await click(page, '[data-act="checkin-open"]');
+      s = await flowState(page);
+      assert(s.card && s.q === "Protein at breakfast?", "Check-in on an earlier day should open its flow, got " + JSON.stringify(s));
+      await clearFake(page);
+    });
+
+    await test("r14.v27a1.applicability-pre-fast-tisha", async () => {
+      const page = await freshPage(browser);
+      const qs = await page.evaluate(() => {
+        const probes = {
+          preFri: isPreRest("2026-10-23"), fastSun: isFastDay("2026-12-20"), tisha: isTishaBav("2026-07-23")
+        };
+        const fields = (d) => checkinQuestions(d).map((q) => q.field);
+        return { probes, pre: fields("2026-10-23"), fast: fields("2026-12-20"), tisha: fields("2026-07-23") };
+      });
+      assert(qs.probes.preFri, "2026-10-23 should be a pre-rest Friday, got " + JSON.stringify(qs.probes));
+      assert(JSON.stringify(qs.pre) === JSON.stringify(["proteinB", "proteinL", "vegL", "drinks", "noAlcohol", "steps", "workout"]),
+        "pre-rest questions should be daytime only, got " + JSON.stringify(qs.pre));
+      assert(qs.probes.fastSun, "2026-12-20 should be a minor fast day, got " + JSON.stringify(qs.probes));
+      assert(JSON.stringify(qs.fast) === JSON.stringify(["proteinD", "vegD", "treat", "kitchenClosed", "drinks", "noAlcohol", "steps", "bed"]),
+        "fast-day questions should be dinner + non-meal habits, got " + JSON.stringify(qs.fast));
+      assert(qs.probes.tisha, "2026-07-23 should be Tisha B'Av, got " + JSON.stringify(qs.probes));
+      assert(JSON.stringify(qs.tisha) === JSON.stringify(["treat", "kitchenClosed", "drinks", "noAlcohol", "steps", "bed"]),
+        "Tisha B'Av questions should exclude all meal questions, got " + JSON.stringify(qs.tisha));
+      await page.close();
+    });
+
+    await test("r14.v27a1.steps-workout-no-semantics", async () => {
+      const page = await freshPage(browser);
+      await setFake(page, "2026-10-21");
+      await page.evaluate(() => {
+        state.days["2026-10-21"] = { f: { steps: { v: 3000, ts: 1 } } };
+        saveLocal();
+        try { delete ui.checkin; } catch (e) {}
+        ui.tab = "today"; saveUi(); render(true);
+      });
+      // Q1..Q10 Yes -> steps question (Q11).
+      for (let i = 0; i < 10; i++) await click(page, '[data-act="checkin-yes"]');
+      let s = await flowState(page);
+      assert(s.q === "Hit your step goal?", "Q11 should be the steps question, got " + JSON.stringify(s));
+      await click(page, '[data-act="checkin-no"]');
+      const afterNo = await page.evaluate(() => ({ steps: getDayF("2026-10-21", "steps"), stepsNo: getDayF("2026-10-21", "stepsNo") }));
+      assert(afterNo.steps === 3000 && afterNo.stepsNo === true, "steps No must keep the partial count and record the No, got " + JSON.stringify(afterNo));
+      s = await flowState(page);
+      assert(s.q === "Workout done?", "steps No should advance to workout, got " + JSON.stringify(s));
+      await click(page, '[data-act="checkin-no"]');
+      const w = await page.evaluate(() => {
+        const sc = scoreDay("2026-10-21");
+        return { workout: getDayF("2026-10-21", "workout"), workoutOff: getDayF("2026-10-21", "workoutOff"), wItem: sc.items.workout, sItem: sc.items.steps, score: sc.score };
+      });
+      assert(w.workout === false && !w.workoutOff && w.wItem === false && w.sItem === false,
+        "workout No must be an explicit No that does not score, got " + JSON.stringify(w));
+      await click(page, '[data-act="checkin-yes"]'); // bed
+      const fin = await page.evaluate(() => scoreDay("2026-10-21"));
+      assert(fin.score === 8 && fin.of === 10, "day should finish 8/10 with steps+workout Nos, got " + JSON.stringify(fin));
+      await clearFake(page);
     });
   }
 } finally {
