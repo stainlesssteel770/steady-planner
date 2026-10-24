@@ -6,7 +6,8 @@
              bf10 (calendar data) | bf11 (fast / Nine Days rules) |
              v25i1 (compact Today hero) | v25i2 (On-the-plan above habits) |
              v25i3 (habit group sections) | v25i4 (sticky score strip) |
-             v27a1 (Today inline check-in flow)
+             v27a1 (Today inline check-in flow) |
+             v27a2 (per-meal seconds taps)
    Usage: node test-r14.mjs [section|all]   (WIDTH env, default 390) */
 import puppeteer from "puppeteer-core";
 
@@ -1278,6 +1279,99 @@ try {
       await click(page, '[data-act="checkin-yes"]'); // bed
       const fin = await page.evaluate(() => scoreDay("2026-10-21"));
       assert(fin.score === 8 && fin.of === 10, "day should finish 8/10 with steps+workout Nos, got " + JSON.stringify(fin));
+      await clearFake(page);
+    });
+  }
+  if (run("v27a2")) {
+    const setFake = async (page, fake) => {
+      await page.evaluate((f) => { try { localStorage.setItem("steady.testmode", JSON.stringify({ fake: f, lastSeen: Date.now() })); } catch (e) {} }, fake);
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
+    };
+    const clearFake = async (page) => {
+      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.close();
+    };
+    const click = async (page, sel) => { await page.evaluate((s) => document.querySelector(s).click(), sel); await wait(350); };
+    const resetDay = async (page, date) => page.evaluate((d) => {
+      state.days[d] = { f: {} }; saveLocal();
+      try { delete ui.checkin; } catch (e) {}
+      ui.tab = "today"; saveUi(); render(true);
+    }, date);
+    const secRow = (page) => page.evaluate(() => {
+      const card = document.querySelector(".checkin-card");
+      const row = card ? card.querySelector(".seconds-row") : null;
+      const q = card ? card.querySelector(".checkin-q") : null;
+      return {
+        row: !!row,
+        plus: !!(row && row.querySelector('[data-act="seconds-plus"]')),
+        minus: !!(row && row.querySelector('[data-act="seconds-minus"]')),
+        text: row ? row.textContent.replace(/\s+/g, " ").trim() : null,
+        q: q ? q.textContent.trim() : null
+      };
+    });
+
+    await test("r14.v27a2.per-meal-taps-independent", async () => {
+      const page = await freshPage(browser);
+      await setFake(page, "2026-10-21");
+      await resetDay(page, "2026-10-21");
+      let r = await secRow(page);
+      assert(r.q === "Protein at breakfast?" && r.plus, "breakfast protein question should carry a + seconds tap, got " + JSON.stringify(r));
+      await click(page, '[data-act="seconds-plus"][data-meal="B"]');
+      await click(page, '[data-act="seconds-plus"][data-meal="B"]');
+      await click(page, '[data-act="seconds-minus"][data-meal="B"]');
+      r = await secRow(page);
+      assert(r.text && r.text.indexOf("1 at this meal") >= 0, "two taps minus one should leave 1 breakfast second, got " + JSON.stringify(r));
+      const b1 = await page.evaluate(() => ({ b: getDayF("2026-10-21", "secondsB"), week: secondsWeekTotal("2026-10-21") }));
+      assert(b1.b === 1 && b1.week === 1, "breakfast tap should store secondsB=1 and week total 1, got " + JSON.stringify(b1));
+      // Lunch is independent; veg questions carry no seconds row.
+      await click(page, '[data-act="checkin-yes"]'); // proteinB -> proteinL
+      r = await secRow(page);
+      assert(r.q === "Protein at lunch?" && r.plus, "lunch protein question should carry its own tap, got " + JSON.stringify(r));
+      await click(page, '[data-act="seconds-plus"][data-meal="L"]');
+      const bl = await page.evaluate(() => ({ b: getDayF("2026-10-21", "secondsB"), l: getDayF("2026-10-21", "secondsL"), week: secondsWeekTotal("2026-10-21") }));
+      assert(bl.b === 1 && bl.l === 1 && bl.week === 2, "lunch tap must not touch breakfast, week total 2, got " + JSON.stringify(bl));
+      await click(page, '[data-act="checkin-yes"]'); // proteinL -> proteinD
+      await click(page, '[data-act="checkin-yes"]'); // proteinD -> vegL
+      r = await secRow(page);
+      assert(r.q === "Veggies at lunch?" && !r.row, "veg questions must not carry a seconds row, got " + JSON.stringify(r));
+      await clearFake(page);
+    });
+
+    await test("r14.v27a2.legacy-seconds-counts-as-one", async () => {
+      const page = await freshPage(browser);
+      await setFake(page, "2026-10-21");
+      await page.evaluate(() => {
+        state.days["2026-10-19"] = { f: { seconds: { v: true, ts: 1 } } }; // Monday, legacy only
+        state.days["2026-10-20"] = { f: { seconds: { v: true, ts: 1 }, secondsB: { v: 1, ts: 1 } } }; // both: per-meal wins, no double count
+        state.days["2026-10-21"] = { f: { secondsB: { v: 2, ts: 1 } } };
+        saveLocal(); ui.tab = "today"; saveUi(); render(true);
+      });
+      const tot = await page.evaluate(() => ({
+        mon: secondsDayTotal("2026-10-19"), tue: secondsDayTotal("2026-10-20"),
+        wed: secondsDayTotal("2026-10-21"), week: secondsWeekTotal("2026-10-21")
+      }));
+      assert(tot.mon === 1, "legacy seconds=true should count as 1, got " + JSON.stringify(tot));
+      assert(tot.tue === 1, "a day with both legacy and per-meal taps must not double count, got " + JSON.stringify(tot));
+      assert(tot.wed === 2 && tot.week === 4, "week total should be 1+1+2=4, got " + JSON.stringify(tot));
+      await clearFake(page);
+    });
+
+    await test("r14.v27a2.old-card-gone-done-line-kept", async () => {
+      const page = await freshPage(browser);
+      await setFake(page, "2026-10-21");
+      await resetDay(page, "2026-10-21");
+      for (let i = 0; i < 13; i++) await click(page, '[data-act="checkin-yes"]');
+      const res = await page.evaluate(() => ({
+        oldTick: !!document.querySelector('[data-act="tick"][data-f="seconds"]'),
+        oldTitle: !!Array.from(document.querySelectorAll("section.card b")).find((b) => b.textContent.trim() === "Had seconds"),
+        doneLine: (document.querySelector(".checkin-done") || {}).textContent || ""
+      }));
+      assert(!res.oldTick, "the standalone seconds tick must be gone");
+      assert(!res.oldTitle, "the standalone 'Had seconds' card must be gone");
+      assert(res.doneLine.indexOf("Seconds:") >= 0 && res.doneLine.indexOf("About 2 a week is fine") >= 0,
+        "the done card should keep the week count + note, got: " + JSON.stringify(res.doneLine));
       await clearFake(page);
     });
   }

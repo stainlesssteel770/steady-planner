@@ -400,6 +400,20 @@ function checkinAnswerClick(yes) {
   statusAfterEdit();
   checkinAdvance(false);
 }
+/* v27a item 2: per-meal seconds. A day's total is the sum of its
+   per-meal taps; a legacy day-level seconds=true counts as 1 only when
+   the day has no per-meal taps (never double-counted). Never scored. */
+function secondsDayTotal(date) {
+  var n = 0;
+  ["B", "L", "D"].forEach(function (m) { var v = getDayF(date, "seconds" + m); if (typeof v === "number" && v > 0) n += Math.floor(v); });
+  if (n > 0) return n;
+  return getDayF(date, "seconds") ? 1 : 0;
+}
+function secondsWeekTotal(date) {
+  var sun = weekSunday(date), n = 0;
+  for (var i = 0; i < 7; i++) n += secondsDayTotal(addDays(sun, i));
+  return n;
+}
 function workoutsInWeek(anyDate) {
   var sun = weekSunday(anyDate), n = 0;
   for (var i = 0; i < 7; i++) if (getDayF(addDays(sun, i), "workout")) n++;
@@ -700,9 +714,17 @@ function renderToday() {
       '<button class="tick' + (fans === "yes" ? " on" : "") + '" data-act="checkin-yes">Yes</button>' +
       '<button class="tick' + (fans === "no" ? " on" : "") + '" data-act="checkin-no">No</button>' +
       (flowSt.qi > 0 ? '<button class="tick" data-act="checkin-back">Back</button>' : '') +
-      '<button class="tick" data-act="checkin-skip">Skip</button></div></section>';
+      '<button class="tick" data-act="checkin-skip">Skip</button></div>' +
+      (fq.field === "proteinB" || fq.field === "proteinL" || fq.field === "proteinD" ? (function () {
+        var ml = fq.field.slice(-1), cnt = getDayF(date, "seconds" + ml);
+        cnt = typeof cnt === "number" ? cnt : 0;
+        return '<div class="seconds-row"><button class="tick" data-act="seconds-plus" data-meal="' + ml + '">+ seconds</button>' +
+          (cnt > 0 ? '<span class="extra-count">' + cnt + ' at this meal</span><button class="tick" data-act="seconds-minus" data-meal="' + ml + '">−1</button>' : '') +
+          '</div><div class="habit-sub">' + secondsWeekTotal(date) + ' this week. About 2 a week is fine, mostly Shabbos (that one needs no logging).</div>';
+      })() : "") + '</section>';
   } else {
-    h += '<section class="card checkin-done"><div class="row spread"><div><b>' + (date === todayStr ? 'Check-in done · ' + sc.score + '/' + sc.of : esc(longDate(date))) + '</b></div>' +
+    h += '<section class="card checkin-done"><div class="row spread"><div><b>' + (date === todayStr ? 'Check-in done · ' + sc.score + '/' + sc.of : esc(longDate(date))) + '</b>' +
+      '<div class="habit-sub">Seconds: ' + secondsWeekTotal(date) + ' this week. About 2 a week is fine, mostly Shabbos (that one needs no logging).</div></div>' +
       '<div class="ticks"><button class="tick" data-act="checkin-open">Check-in</button>' +
       '<button class="tick" data-act="checkin-forward">Forward</button></div></div></section>';
   }
@@ -788,12 +810,6 @@ function renderToday() {
         '<button class="btn" data-act="goto-plan-prep">Open the prep checklist</button></section>';
     }
   }
-  // Seconds
-  var secCount = 0, ssun = weekSunday(date);
-  for (var si = 0; si < 7; si++) if (getDayF(addDays(ssun, si), "seconds")) secCount++;
-  h += '<section class="card"><div class="row spread"><div><b>Had seconds</b><div class="habit-sub">' + secCount + ' this week. About 2 a week is fine, mostly Shabbos (that one needs no logging).</div></div>' +
-    '<button class="tick' + (getDayF(date, "seconds") ? " on" : "") + '" data-act="tick" data-f="seconds">' + (getDayF(date, "seconds") ? "✓" : "Yes") + '</button></div></section>';
-
   // Weekly check-in
   var entries = checkinEntries();
   var thisWeekEntry = null;
@@ -1740,6 +1756,13 @@ document.addEventListener("click", function (ev) {
     else { var hb = document.getElementById("habitGroups"); if (hb) hb.scrollIntoView(); }
     return;
   }
+  if (act === "seconds-plus" || act === "seconds-minus") {
+    if (isRest(selDate)) return;
+    var sm = el.getAttribute("data-meal"), sf = "seconds" + sm;
+    var scur = getDayF(selDate, sf); scur = typeof scur === "number" ? scur : 0;
+    opDay(selDate, sf, act === "seconds-plus" ? scur + 1 : Math.max(0, scur - 1));
+    return;
+  }
   if (act === "tm-off") { tmTurnOff(); return; } /* TESTMODE */
   if (act === "tick") {
     var f = el.getAttribute("data-f");
@@ -2151,7 +2174,7 @@ function sanitizeBackup(parsed) {
     return { v: raw.v, ts: ts };
   }
   var DAY_BOOL = ["proteinB", "proteinL", "proteinD", "vegL", "vegD", "mealsPlan", "treat", "kitchenClosed", "drinks", "noAlcohol", "workout", "workoutOff", "bed", "seconds", "caughtUp", "stepsNo"];
-  var DAY_NUM = { steps: [0, 100000], weight: [50, 700], waist: [10, 90], water: [0, 100000], snackX: [0, 50], drinkX: [0, 50] };
+  var DAY_NUM = { steps: [0, 100000], weight: [50, 700], waist: [10, 90], water: [0, 100000], snackX: [0, 50], drinkX: [0, 50], secondsB: [0, 50], secondsL: [0, 50], secondsD: [0, 50] };
   var DAY_STR = ["workoutNote", "note"];
   function cleanDayField(name, c) {
     if (DAY_BOOL.indexOf(name) >= 0) {
