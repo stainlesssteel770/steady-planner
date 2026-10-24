@@ -7,7 +7,8 @@
              v25i1 (compact Today hero) | v25i2 (On-the-plan above habits) |
              v25i3 (habit group sections) | v25i4 (sticky score strip) |
              v27a1 (Today inline check-in flow) |
-             v27a2 (per-meal seconds taps)
+             v27a2 (per-meal seconds taps) |
+             v27a3 (planned-meal wording)
    Usage: node test-r14.mjs [section|all]   (WIDTH env, default 390) */
 import puppeteer from "puppeteer-core";
 
@@ -1372,6 +1373,66 @@ try {
       assert(!res.oldTitle, "the standalone 'Had seconds' card must be gone");
       assert(res.doneLine.indexOf("Seconds:") >= 0 && res.doneLine.indexOf("About 2 a week is fine") >= 0,
         "the done card should keep the week count + note, got: " + JSON.stringify(res.doneLine));
+      await clearFake(page);
+    });
+  }
+  if (run("v27a3")) {
+    const setFake = async (page, fake) => {
+      await page.evaluate((f) => { try { localStorage.setItem("steady.testmode", JSON.stringify({ fake: f, lastSeen: Date.now() })); } catch (e) {} }, fake);
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
+    };
+    const clearFake = async (page) => {
+      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.close();
+    };
+    const click = async (page, sel) => { await page.evaluate((s) => document.querySelector(s).click(), sel); await wait(350); };
+
+    await test("r14.v27a3.meal-wording-planned-generic-veg", async () => {
+      const page = await freshPage(browser);
+      await setFake(page, "2026-10-21"); // Wednesday
+      const names = await page.evaluate(() => {
+        const wk = "2026-10-18"; // week Sunday of the fake Wednesday
+        const lunch = Object.values(PLAN_DATA.MEALS).find((m) => (m.s || "").indexOf("L") >= 0);
+        const tueDinner = Object.values(PLAN_DATA.MEALS).find((m) => (m.s || "").indexOf("D") >= 0);
+        state.plans[wk] = { f: {
+          pro: { v: [lunch.p, tueDinner.p], ts: 1 },
+          m3L: { v: { id: lunch.id }, ts: 1 },
+          m2D: { v: { id: tueDinner.id }, ts: 1 },
+          m3D: { v: { lo: 1 }, ts: 1 }
+        } };
+        state.days["2026-10-21"] = { f: {} };
+        saveLocal();
+        try { delete ui.checkin; } catch (e) {}
+        ui.tab = "today"; saveUi(); render(true);
+        const qs = checkinQuestions("2026-10-21");
+        const byField = {};
+        qs.forEach((q) => { byField[q.field] = q.text; });
+        return { lunch: lunch.n, tueDinner: tueDinner.n, byField };
+      });
+      // Direct: wording comes from the plan, veg stays generic.
+      assert(names.byField.proteinL === "Lunch: " + names.lunch + ". On plan?",
+        "lunch protein question should name the planned meal, got: " + JSON.stringify(names.byField.proteinL));
+      assert(names.byField.proteinD === "Dinner: Leftovers: " + names.tueDinner + ". On plan?",
+        "dinner protein question should name the leftover meal, got: " + JSON.stringify(names.byField.proteinD));
+      assert(names.byField.proteinB === "Protein at breakfast?",
+        "breakfast has no planned meal and stays generic, got: " + JSON.stringify(names.byField.proteinB));
+      assert(names.byField.vegL === "Veggies at lunch?" && names.byField.vegD === "Veggies at dinner?",
+        "veg questions stay generic even with a plan, got: " + JSON.stringify({ l: names.byField.vegL, d: names.byField.vegD }));
+      // Through the flow: Q2 shows the lunch wording.
+      await click(page, '[data-act="checkin-yes"]'); // breakfast -> lunch
+      const q2 = await page.evaluate(() => { const q = document.querySelector(".checkin-q"); return q ? q.textContent.trim() : null; });
+      assert(q2 === "Lunch: " + names.lunch + ". On plan?", "flow Q2 should show the lunch wording, got: " + JSON.stringify(q2));
+      // Generic fallback: a week with no plan at all.
+      const fb = await page.evaluate(() => {
+        const qs = checkinQuestions("2026-10-28"); // next Wednesday, no plan seeded
+        const byField = {};
+        qs.forEach((q) => { byField[q.field] = q.text; });
+        return byField;
+      });
+      assert(fb.proteinL === "Protein at lunch?" && fb.proteinD === "Protein at dinner?",
+        "without a plan the meal questions fall back to generic wording, got: " + JSON.stringify({ l: fb.proteinL, d: fb.proteinD }));
       await clearFake(page);
     });
   }

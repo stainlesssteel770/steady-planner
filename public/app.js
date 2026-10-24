@@ -305,7 +305,21 @@ function checkinQuestions(date) {
   var qs = [];
   var push = function (field, text) { qs.push({ field: field, text: text }); };
   var prot = tishaD ? [] : fastD ? ["proteinD"] : pre ? ["proteinB", "proteinL"] : ["proteinB", "proteinL", "proteinD"];
-  var protText = { proteinB: "Protein at breakfast?", proteinL: "Protein at lunch?", proteinD: "Protein at dinner?" };
+  /* v27a item 3: lunch/dinner protein questions name the planned meal
+     (same ENGINE.resolve path as the On-the-plan card; leftovers keep
+     the card's "Leftovers: " prefix). No plan, or breakfast (never
+     planned), falls back to the generic wording. Veg stays generic. */
+  var wk = weekSunday(date), cells = planCells(wk), ctx = planCtx(wk);
+  var mealText = function (field, slot, label, generic) {
+    var r = ENGINE.resolve(ctx, cells, "m" + dowOf(date) + slot);
+    if (r && r.meal) return label + ": " + (r.lo ? "Leftovers: " : "") + r.meal.n + ". On plan?";
+    return generic;
+  };
+  var protText = {
+    proteinB: "Protein at breakfast?",
+    proteinL: mealText("proteinL", "L", "Lunch", "Protein at lunch?"),
+    proteinD: mealText("proteinD", "D", "Dinner", "Protein at dinner?")
+  };
   prot.forEach(function (f) { push(f, protText[f]); });
   var veg = tishaD ? [] : fastD ? ["vegD"] : pre ? ["vegL"] : ["vegL", "vegD"];
   var vegText = { vegL: "Veggies at lunch?", vegD: "Veggies at dinner?" };
