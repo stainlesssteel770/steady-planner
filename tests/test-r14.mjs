@@ -8,7 +8,8 @@
              v25i3 (habit group sections) | v25i4 (sticky score strip) |
              v27a1 (Today inline check-in flow) |
              v27a2 (per-meal seconds taps) |
-             v27a3 (planned-meal wording)
+             v27a3 (planned-meal wording) |
+             v27a4 (explicit No grey style + scoring regression)
    Usage: node test-r14.mjs [section|all]   (WIDTH env, default 390) */
 import puppeteer from "puppeteer-core";
 
@@ -1433,6 +1434,110 @@ try {
       });
       assert(fb.proteinL === "Protein at lunch?" && fb.proteinD === "Protein at dinner?",
         "without a plan the meal questions fall back to generic wording, got: " + JSON.stringify({ l: fb.proteinL, d: fb.proteinD }));
+      await clearFake(page);
+    });
+  }
+  if (run("v27a4")) {
+    const setFake = async (page, fake) => {
+      await page.evaluate((f) => { try { localStorage.setItem("steady.testmode", JSON.stringify({ fake: f, lastSeen: Date.now() })); } catch (e) {} }, fake);
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
+    };
+    const clearFake = async (page) => {
+      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.close();
+    };
+    const click = async (page, sel) => { await page.evaluate((s) => document.querySelector(s).click(), sel); await wait(350); };
+
+    await test("r14.v27a4.grey-no-style", async () => {
+      const page = await freshPage(browser);
+      await setFake(page, "2026-10-21");
+      await page.evaluate(() => {
+        const f = {};
+        ["proteinL", "proteinD", "vegD", "mealsPlan", "treat", "kitchenClosed", "drinks", "noAlcohol", "bed", "workoutOff"].forEach((k) => { f[k] = { v: true, ts: 1 }; });
+        f.proteinB = { v: false, ts: 1 };
+        f.vegL = { v: false, ts: 1 };
+        f.steps = { v: 9000, ts: 1 };
+        state.days["2026-10-21"] = { f };
+        saveLocal();
+        try { delete ui.checkin; } catch (e) {}
+        try { delete ui.celebratedDate; } catch (e) {}
+        ui.tab = "today"; saveUi(); render(true);
+      });
+      // Done mode (all answered) -> checklist ticks carry the grey no-style
+      // exactly on the explicitly-false fields.
+      const cls = await page.evaluate(() => {
+        const c = (f) => { const b = document.querySelector('[data-act="tick"][data-f="' + f + '"]'); return b ? b.className : null; };
+        return { pB: c("proteinB"), pL: c("proteinL"), vL: c("vegL"), bed: c("bed") };
+      });
+      assert(cls.pB && cls.pB.indexOf("no") >= 0 && cls.pB.indexOf("on") < 0, "explicit-No proteinB tick should be grey, got: " + JSON.stringify(cls.pB));
+      assert(cls.vL && cls.vL.indexOf("no") >= 0, "explicit-No vegL tick should be grey, got: " + JSON.stringify(cls.vL));
+      assert(cls.pL && cls.pL.indexOf("on") >= 0 && cls.pL.indexOf("no") < 0, "Yes proteinL tick should be green, not grey, got: " + JSON.stringify(cls.pL));
+      assert(cls.bed && cls.bed.indexOf("on") >= 0, "Yes bed tick should be green, got: " + JSON.stringify(cls.bed));
+      // Flow: reopening Check-in shows the No answer grey on Q1.
+      await click(page, '[data-act="checkin-open"]');
+      const flowBtns = await page.evaluate(() => {
+        const card = document.querySelector(".checkin-card");
+        const yes = card ? card.querySelector('[data-act="checkin-yes"]') : null;
+        const no = card ? card.querySelector('[data-act="checkin-no"]') : null;
+        return { q: card ? card.querySelector(".checkin-q").textContent.trim() : null, yes: yes ? yes.className : null, no: no ? no.className : null };
+      });
+      assert(flowBtns.q === "Protein at breakfast?", "Check-in should reopen at Q1, got: " + JSON.stringify(flowBtns.q));
+      assert(flowBtns.no && flowBtns.no.indexOf("no") >= 0, "flow No button should be grey for the answered No, got: " + JSON.stringify(flowBtns.no));
+      assert(flowBtns.yes && flowBtns.yes.indexOf("on") < 0, "flow Yes button should not be highlighted for a No answer, got: " + JSON.stringify(flowBtns.yes));
+      await clearFake(page);
+    });
+
+    await test("r14.v27a4.scoring-regression-and-old-data", async () => {
+      const page = await freshPage(browser);
+      await setFake(page, "2026-10-21");
+      // A day of explicit Nos: scores 0, is not "logged", and is treated
+      // exactly like an unanswered day by the never-miss-twice rule.
+      const sc = await page.evaluate(() => {
+        const f = {};
+        ["proteinB", "proteinL", "proteinD", "vegL", "vegD", "mealsPlan", "treat", "kitchenClosed", "drinks", "noAlcohol", "bed", "workout", "workoutOff"].forEach((k) => { f[k] = { v: false, ts: 1 }; });
+        f.stepsNo = { v: true, ts: 1 };
+        state.days["2026-10-21"] = { f };
+        state.days["2026-10-20"] = { f: {} };
+        saveLocal(); ui.tab = "today"; saveUi(); render(true);
+        const allNo = scoreDay("2026-10-21"), empty = scoreDay("2026-10-20");
+        return {
+          allNo: { score: allNo.score, of: allNo.of, logged: allNo.logged, ratio: allNo.ratio },
+          empty: { score: empty.score, of: empty.of, logged: empty.logged, ratio: empty.ratio }
+        };
+      });
+      assert(sc.allNo.score === 0 && sc.allNo.of === 10 && sc.allNo.logged === false,
+        "a day of explicit Nos must score 0/10 and not count as logged, got: " + JSON.stringify(sc.allNo));
+      assert(sc.empty.score === 0 && sc.empty.logged === false && sc.empty.ratio === sc.allNo.ratio,
+        "an unanswered day must get the same never-miss-twice treatment as an all-No day, got: " + JSON.stringify(sc.empty));
+      // Old data: true stays done, missing stays unanswered (never No).
+      const old = await page.evaluate(() => {
+        state.days["2026-10-21"] = { f: { proteinB: { v: true, ts: 1 } } };
+        saveLocal();
+        try { delete ui.checkin; } catch (e) {}
+        ui.tab = "today"; saveUi(); render(true);
+        const card = document.querySelector(".checkin-card");
+        const yes = card ? card.querySelector('[data-act="checkin-yes"]') : null;
+        const no = card ? card.querySelector('[data-act="checkin-no"]') : null;
+        return {
+          pB: checkinAnswer("2026-10-21", { field: "proteinB" }),
+          pL: checkinAnswer("2026-10-21", { field: "proteinL" }),
+          q: card ? card.querySelector(".checkin-q").textContent.trim() : null,
+          yesOn: !!(yes && yes.className.indexOf("on") >= 0),
+          noGrey: !!(no && no.className.indexOf("no") >= 0)
+        };
+      });
+      assert(old.pB === "yes" && old.pL === null, "old true stays done and old missing stays unanswered, got: " + JSON.stringify(old));
+      assert(old.q === "Protein at lunch?", "the flow should open at the first unanswered question, got: " + JSON.stringify(old.q));
+      assert(!old.yesOn && !old.noGrey, "an unanswered question must show neither Yes nor No highlighted, got: " + JSON.stringify(old));
+      // A flow No writes an explicit false (strict), and does not score.
+      await click(page, '[data-act="checkin-no"]');
+      const noW = await page.evaluate(() => ({
+        v: getDayF("2026-10-21", "proteinL"),
+        proteinItem: scoreDay("2026-10-21").items.protein
+      }));
+      assert(noW.v === false && noW.proteinItem === false, "a flow No must store false and not score, got: " + JSON.stringify(noW));
       await clearFake(page);
     });
   }

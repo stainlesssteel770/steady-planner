@@ -726,7 +726,7 @@ function renderToday() {
       (fq.field === "steps" ? '<div class="habit-sub">Goal ' + getSetting("stepGoal").toLocaleString("en-US") + (typeof getDayF(date, "steps") === "number" ? ' · logged ' + getDayF(date, "steps").toLocaleString("en-US") : '') + '</div>' : '') +
       '<div class="ticks">' +
       '<button class="tick' + (fans === "yes" ? " on" : "") + '" data-act="checkin-yes">Yes</button>' +
-      '<button class="tick' + (fans === "no" ? " on" : "") + '" data-act="checkin-no">No</button>' +
+      '<button class="tick' + (fans === "no" ? " no" : "") + '" data-act="checkin-no">No</button>' +
       (flowSt.qi > 0 ? '<button class="tick" data-act="checkin-back">Back</button>' : '') +
       '<button class="tick" data-act="checkin-skip">Skip</button></div>' +
       (fq.field === "proteinB" || fq.field === "proteinL" || fq.field === "proteinD" ? (function () {
@@ -772,7 +772,7 @@ function renderToday() {
            a minor fast asks only the dinner questions; Tisha B'Av asks none. */
         if (isFastDay(date) && (f === "proteinB" || f === "proteinL" || f === "vegL")) dis = true;
         if (isTishaBav(date) && (f === "proteinB" || f === "proteinL" || f === "proteinD" || f === "vegL" || f === "vegD")) dis = true;
-        h += '<button class="tick' + (getDayF(date, f) ? " on" : "") + '" data-act="tick" data-f="' + f + '"' + (dis ? " disabled" : "") + '>' + esc(tk[1]) + '</button>';
+        h += '<button class="tick' + (getDayF(date, f) ? " on" : (getDayF(date, f) === false ? " no" : "")) + '" data-act="tick" data-f="' + f + '"' + (dis ? " disabled" : "") + '>' + esc(tk[1]) + '</button>';
       });
       h += '</div>';
     } else if (hab.kind === "steps") {
@@ -784,11 +784,12 @@ function renderToday() {
         '<div class="habit-sub">' + (typeof steps === "number" ? steps.toLocaleString("en-US") + " of " : "Goal ") + goal.toLocaleString("en-US") + '</div>';
     } else if (hab.kind === "workout") {
       var wo = !!getDayF(date, "workout"), woff = !!getDayF(date, "workoutOff");
+      var woRaw = getDayF(date, "workout"), woffRaw = getDayF(date, "workoutOff");
       h += '<div class="habit-sub">' + workoutsInWeek(date) + '/' + getSetting("workoutTarget") + ' this week · 20 min at home</div><div class="ticks">' +
-        '<button class="tick' + (wo ? " on" : "") + '" data-act="goto-workout">' + (wo ? "Done ✓" : "Start routine") + '</button>' +
-        '<button class="tick' + (woff ? " on" : "") + '" data-act="tick" data-f="workoutOff"' + (wo ? " disabled" : "") + '>Rest day</button></div>';
+        '<button class="tick' + (wo ? " on" : (woRaw === false ? " no" : "")) + '" data-act="goto-workout">' + (wo ? "Done ✓" : "Start routine") + '</button>' +
+        '<button class="tick' + (woff ? " on" : (woffRaw === false ? " no" : "")) + '" data-act="tick" data-f="workoutOff"' + (wo ? " disabled" : "") + '>Rest day</button></div>';
     } else if (hab.field) {
-      h += '<div class="ticks"><button class="tick' + (getDayF(date, hab.field) ? " on" : "") + '" data-act="tick" data-f="' + hab.field + '">' + (getDayF(date, hab.field) ? "✓ Done" : "Tap when done") + '</button>';
+      h += '<div class="ticks"><button class="tick' + (getDayF(date, hab.field) ? " on" : (getDayF(date, hab.field) === false ? " no" : "")) + '" data-act="tick" data-f="' + hab.field + '">' + (getDayF(date, hab.field) ? "✓ Done" : "Tap when done") + '</button>';
       var exH = EXTRAS[hab.field];
       if (exH) {
         var nH = extraCount(date, exH.x);
