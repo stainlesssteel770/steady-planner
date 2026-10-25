@@ -271,6 +271,10 @@ function weekExtraTotal(date, x) { var sun = weekSunday(date), n = 0; for (var i
    stored as cups; the oz display multiplies by 8. */
 function waterGoal() { var g = getSetting("waterGoal"); return (typeof g === "number" && g > 0) ? g : 8; }
 function waterUnit() { var u = getSetting("waterUnit"); return u === "oz" ? "oz" : "cups"; }
+/* v27b item 3 (Mark addition, default corrected by Mark 2026-10-24):
+   the alcohol question is toggled in Settings, default OFF (excluded
+   unless opted in). */
+function alcoholOn() { return !!getSetting("alcoholOn"); }
 function waterRowHTML(date) {
   var n = getDayF(date, "water"); n = typeof n === "number" ? n : 0;
   var goal = waterGoal(), unit = waterUnit();
@@ -278,7 +282,8 @@ function waterRowHTML(date) {
   var done = n >= goal;
   return '<div class="ticks water-row"><span class="water-label">Water</span><button class="tick" data-act="water-plus">+1</button>' +
     '<span class="water-count' + (done ? " on" : "") + '">' + shown + '</span>' +
-    (n > 0 ? '<button class="tick" data-act="water-minus">−1</button>' : '') + '</div>';
+    (n > 0 ? '<button class="tick" data-act="water-minus">−1</button>' : '') +
+    (getSetting("coffeeOn") ? '<button class="tick' + (getDayF(date, "coffee") ? " on" : "") + '" data-act="coffee">Had a coffee</button>' : '') + '</div>';
 }
 function scoreDay(date) {
   if (isRest(date)) return null;
@@ -299,7 +304,7 @@ function scoreDay(date) {
      been tapped (even back to 0); untouched days keep the legacy bool, so
      old drinks=true days hold their score with no silent rescoring. */
   items.drinks = (typeof water === "number") ? (water >= waterGoal()) : g("drinks");
-  items.noAlcohol = g("noAlcohol") || extraCount(date, "drinkX") > 0;
+  items.noAlcohol = alcoholOn() ? (g("noAlcohol") || extraCount(date, "drinkX") > 0) : null;
   var steps = getDayF(date, "steps");
   items.steps = typeof steps === "number" && steps >= getSetting("stepGoal");
   items.workout = (fastD || tishaD) ? null : (g("workout") || g("workoutOff"));
@@ -346,7 +351,7 @@ function checkinQuestions(date) {
   veg.forEach(function (f) { push(f, vegText[f]); });
   if (!pre && !fastD && !tishaD) push("mealsPlan", "3 meals + 1 afternoon snack?");
   if (!pre) { push("treat", "One portioned treat?"); push("kitchenClosed", "Kitchen closed after the treat?"); }
-  push("noAlcohol", "No alcohol?");
+  if (alcoholOn()) push("noAlcohol", "No alcohol?");
   push("steps", "Hit your step goal?");
   if (!fastD && !tishaD) push("workout", "Workout done?");
   if (!pre) push("bed", "In bed by midnight?");
@@ -840,14 +845,17 @@ function renderToday() {
     { label: "Drinks", ids: ["drinks", "noAlcohol"] },
     { label: "Body", ids: ["steps", "workout", "bed"] }
   ];
+  var visNum = 0; /* v27b item 3: numbering counts visible habits only, so a toggled-off habit leaves no gap. */
   HABIT_GROUPS.forEach(function (grp, gi) {
   if (flowActive) return;
   h += '<section class="card"' + (gi === 0 ? ' id="habitGroups"' : '') + '><h3 class="habit-group">' + grp.label + '</h3>';
   STEADY.habits.forEach(function (hab, idx) {
     if (grp.ids.indexOf(hab.id) < 0) return;
+    if (hab.id === "noAlcohol" && !alcoholOn()) return;
+    visNum++;
     var greyed = pre && hab.evening;
     h += '<div class="habit' + (hab.good ? " good" : "") + (greyed ? " greyed" : "") + '">' +
-      '<div class="habit-num">' + (idx + 1) + '</div><div class="habit-body">' +
+      '<div class="habit-num">' + visNum + '</div><div class="habit-body">' +
       '<div class="habit-title">' + esc(hab.title) + '</div><div class="habit-sub">' + esc(hab.sub) + '</div>';
     if (greyed) {
       h += '<div class="habit-sub">Not counted tonight</div>';
@@ -1875,6 +1883,11 @@ document.addEventListener("click", function (ev) {
     opDay(selDate, "water", act === "water-plus" ? wcur + 1 : Math.max(0, wcur - 1));
     return;
   }
+  if (act === "coffee") {
+    if (isRest(selDate)) return;
+    opDay(selDate, "coffee", !getDayF(selDate, "coffee"));
+    return;
+  }
   if (act === "tm-off") { tmTurnOff(); return; } /* TESTMODE */
   if (act === "tick") {
     var f = el.getAttribute("data-f");
@@ -2239,6 +2252,10 @@ function openSettings() {
   if (se0) { se0.textContent = ""; se0.hidden = true; }
   document.getElementById("setStepGoal").value = getSetting("stepGoal");
   document.getElementById("setWorkoutTarget").value = getSetting("workoutTarget");
+  document.getElementById("setWaterGoal").value = waterGoal();
+  document.getElementById("setWaterUnit").value = waterUnit();
+  document.getElementById("setCoffeeOn").checked = !!getSetting("coffeeOn");
+  document.getElementById("setAlcoholOn").checked = !!getSetting("alcoholOn");
   var rn = restName(selDate), ov = getDayF(selDate, "restOverride");
   document.getElementById("setRestLabel").textContent = "Rest day for " + longDate(selDate) + ": " + (rn || "Normal day");
   var ctl = "";
@@ -2263,14 +2280,24 @@ document.getElementById("setSave").addEventListener("click", function (ev) {
   }
   var sgRaw = document.getElementById("setStepGoal").value.trim();
   var wtRaw = document.getElementById("setWorkoutTarget").value.trim();
+  var wgRaw = document.getElementById("setWaterGoal").value.trim();
+  var wuRaw = document.getElementById("setWaterUnit").value;
+  var cfChecked = document.getElementById("setCoffeeOn").checked;
+  var alChecked = document.getElementById("setAlcoholOn").checked;
   var errs = [];
-  var sg = null, wt = null, badField = null;
+  var sg = null, wt = null, wg = null, badField = null;
   if (sgRaw !== "") { sg = Number(sgRaw); if (!(sg >= 1000 && sg <= 40000)) { errs.push("Step goal must be between 1,000 and 40,000."); badField = "setStepGoal"; } }
   if (wtRaw !== "") { wt = Number(wtRaw); if (!Number.isInteger(wt)) { errs.push("Workouts per week must be a whole number."); if (!badField) badField = "setWorkoutTarget"; } else if (!(wt >= 1 && wt <= 7)) { errs.push("Workouts per week must be between 1 and 7."); if (!badField) badField = "setWorkoutTarget"; } }
+  if (wgRaw !== "") { wg = Number(wgRaw); if (!Number.isInteger(wg)) { errs.push("Water goal must be a whole number."); if (!badField) badField = "setWaterGoal"; } else if (!(wg >= 1 && wg <= 100)) { errs.push("Water goal must be between 1 and 100 cups."); if (!badField) badField = "setWaterGoal"; } }
+  if (wuRaw !== "cups" && wuRaw !== "oz") { errs.push("Water unit must be cups or ounces."); if (!badField) badField = "setWaterUnit"; }
   if (errs.length) { setErr(errs.join(" "), badField); if (ev) ev.preventDefault(); return; }
   setErr("");
   if (sg !== null && sg !== getSetting("stepGoal")) opSettings("stepGoal", sg);
   if (wt !== null && wt !== getSetting("workoutTarget")) opSettings("workoutTarget", Math.round(wt));
+  if (wg !== null && wg !== waterGoal()) opSettings("waterGoal", Math.round(wg));
+  if (wuRaw !== waterUnit()) opSettings("waterUnit", wuRaw);
+  if (cfChecked !== !!getSetting("coffeeOn")) opSettings("coffeeOn", cfChecked);
+  if (alChecked !== !!getSetting("alcoholOn")) opSettings("alcoholOn", alChecked);
 });
 
 
@@ -2285,7 +2312,7 @@ function sanitizeBackup(parsed) {
     if (ts === null) ts = 0;
     return { v: raw.v, ts: ts };
   }
-  var DAY_BOOL = ["proteinB", "proteinL", "proteinD", "vegL", "vegD", "mealsPlan", "treat", "kitchenClosed", "drinks", "noAlcohol", "workout", "workoutOff", "bed", "seconds", "caughtUp", "stepsNo", "flowDone"];
+  var DAY_BOOL = ["proteinB", "proteinL", "proteinD", "vegL", "vegD", "mealsPlan", "treat", "kitchenClosed", "drinks", "noAlcohol", "workout", "workoutOff", "bed", "seconds", "caughtUp", "stepsNo", "flowDone", "coffee"];
   var DAY_NUM = { steps: [0, 100000], weight: [50, 700], waist: [10, 90], water: [0, 100000], snackX: [0, 50], drinkX: [0, 50], secondsB: [0, 50], secondsL: [0, 50], secondsD: [0, 50] };
   var DAY_STR = ["workoutNote", "note"];
   function cleanDayField(name, c) {

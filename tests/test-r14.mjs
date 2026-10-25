@@ -282,6 +282,8 @@ try {
       await page.evaluate(() => { try { localStorage.setItem("steady.testmode", JSON.stringify({ fake: "2026-10-21", lastSeen: Date.now() })); } catch (e) {} });
       await page.reload({ waitUntil: "networkidle0" });
       await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
+      // Alcohol defaults off; this test needs it asked (see item 3).
+      await page.evaluate(() => { opSettings("alcoholOn", true); });
       await page.evaluate(() => {
         // Seed everything answered except noAlcohol, so the flow opens on it.
         const f = {};
@@ -766,6 +768,8 @@ try {
       await page.evaluate(() => { try { localStorage.setItem("steady.testmode", JSON.stringify({ fake: "2026-10-21", lastSeen: Date.now() })); } catch (e) {} });
       await page.reload({ waitUntil: "networkidle0" });
       await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
+      // Alcohol defaults off; this test needs it asked (see item 3).
+      await page.evaluate(() => { opSettings("alcoholOn", true); });
       await page.evaluate(() => {
         const f = {};
         ["proteinB", "proteinL", "proteinD", "vegL", "vegD", "mealsPlan", "treat", "kitchenClosed", "drinks", "noAlcohol", "workoutOff", "bed"].forEach((k) => { f[k] = { v: true, ts: 1 }; });
@@ -1159,6 +1163,8 @@ try {
     await test("r14.v27a1.flow-nav-skip-loop-complete", async () => {
       const page = await freshPage(browser);
       await setFake(page, "2026-10-21"); // Wednesday, plain day
+      // Alcohol defaults off; this test needs it asked (see item 3).
+      await page.evaluate(() => { opSettings("alcoholOn", true); });
       await resetDay(page, "2026-10-21");
       let s = await flowState(page);
       assert(s.card, "today with unanswered questions should show the inline question card, got " + JSON.stringify(s));
@@ -1210,6 +1216,8 @@ try {
     await test("r14.v27a1.skip-twice-stays-unanswered", async () => {
       const page = await freshPage(browser);
       await setFake(page, "2026-10-21");
+      // Alcohol defaults off; this test needs it asked (see item 3).
+      await page.evaluate(() => { opSettings("alcoholOn", true); });
       await resetDay(page, "2026-10-21");
       for (let i = 0; i < 11; i++) await click(page, '[data-act="checkin-yes"]');
       // Q12 (bed): skip, loop back, skip again -> completed with bed unanswered.
@@ -1248,6 +1256,8 @@ try {
 
     await test("r14.v27a1.applicability-pre-fast-tisha", async () => {
       const page = await freshPage(browser);
+      // Alcohol defaults off; this test needs it asked (see item 3).
+      await page.evaluate(() => { opSettings("alcoholOn", true); });
       const qs = await page.evaluate(() => {
         const probes = {
           preFri: isPreRest("2026-10-23"), fastSun: isFastDay("2026-12-20"), tisha: isTishaBav("2026-07-23")
@@ -1270,6 +1280,8 @@ try {
     await test("r14.v27a1.steps-workout-no-semantics", async () => {
       const page = await freshPage(browser);
       await setFake(page, "2026-10-21");
+      // Alcohol defaults off; this test needs it asked (see item 3).
+      await page.evaluate(() => { opSettings("alcoholOn", true); });
       await page.evaluate(() => {
         state.days["2026-10-21"] = { f: { steps: { v: 3000, ts: 1 } } };
         saveLocal();
@@ -1377,6 +1389,8 @@ try {
     await test("r14.v27a2.old-card-gone-done-line-kept", async () => {
       const page = await freshPage(browser);
       await setFake(page, "2026-10-21");
+      // Alcohol defaults off; this test needs it asked (see item 3).
+      await page.evaluate(() => { opSettings("alcoholOn", true); });
       await resetDay(page, "2026-10-21");
       for (let i = 0; i < 12; i++) await click(page, '[data-act="checkin-yes"]');
       const res = await page.evaluate(() => ({
@@ -1508,6 +1522,8 @@ try {
     await test("r14.v27a4.scoring-regression-and-old-data", async () => {
       const page = await freshPage(browser);
       await setFake(page, "2026-10-21");
+      // Alcohol defaults off; this test needs it asked (see item 3).
+      await page.evaluate(() => { opSettings("alcoholOn", true); });
       // A day of explicit Nos: scores 0, is not "logged", and is treated
       // exactly like an unanswered day by the never-miss-twice rule.
       const sc = await page.evaluate(() => {
@@ -1771,6 +1787,197 @@ try {
       await wait(350);
       const has = await page.evaluate(() => !!document.querySelector('[data-act="water-plus"]'));
       assert(!has, "a rest day should show no water counter");
+      await clearFake(page);
+    });
+  }
+  if (run("v27b3")) {
+    const setFake = async (page, fake) => {
+      await page.evaluate((f) => { try { localStorage.setItem("steady.testmode", JSON.stringify({ fake: f, lastSeen: Date.now() })); } catch (e) {} }, fake);
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
+    };
+    const clearFake = async (page) => {
+      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.close();
+    };
+    const click = async (page, sel) => { await page.evaluate((s) => document.querySelector(s).click(), sel); await wait(350); };
+    const resetDay = async (page, date) => page.evaluate((d) => {
+      state.days[d] = { f: {} }; saveLocal();
+      try { delete ui.checkin; } catch (e) {}
+      ui.tab = "today"; saveUi(); render(true);
+    }, date);
+    const seedDone = (page) => page.evaluate(() => {
+      const full = {};
+      ["proteinB", "proteinL", "proteinD", "vegL", "vegD", "mealsPlan", "treat", "kitchenClosed", "noAlcohol", "workoutOff", "bed"].forEach((k) => { full[k] = { v: true, ts: 1 }; });
+      full.steps = { v: 9000, ts: 1 };
+      state.days["2026-10-21"] = { f: full };
+      try { delete ui.checkin; } catch (e) {}
+      ui.tab = "today"; saveUi(); render(true);
+    });
+    const setSettings = async (page, goal, unit, coffee) => {
+      await click(page, "#gearBtn");
+      await page.evaluate((g, u, c) => {
+        document.getElementById("setWaterGoal").value = g;
+        document.getElementById("setWaterUnit").value = u;
+        document.getElementById("setCoffeeOn").checked = c;
+      }, goal, unit, coffee);
+      await click(page, "#setSave");
+    };
+    const counterText = (page, scope) => page.evaluate((sc) => {
+      const root = sc ? document.querySelector(sc) : document;
+      const cnt = root ? root.querySelector(".water-count") : null;
+      return cnt ? cnt.textContent.trim() : null;
+    }, scope || null);
+
+    await test("r14.v27b3.defaults-and-wording", async () => {
+      const page = await freshPage(browser);
+      await setFake(page, "2026-10-21");
+      await seedDone(page);
+      await wait(350);
+      const got = await page.evaluate(() => {
+        const sections = Array.from(document.querySelectorAll("section.card")).filter((s) => s.querySelector(".habit-group"));
+        const drinks = sections.find((s) => (s.querySelector(".habit-group") || {}).textContent.trim() === "Drinks");
+        return {
+          text: (document.querySelector(".water-count") || {}).textContent || "",
+          coffee: !!document.querySelector('[data-act="coffee"]'),
+          drinksTitles: drinks ? Array.from(drinks.querySelectorAll(".habit-title")).map((t) => t.textContent.trim()) : []
+        };
+      });
+      assert(got.text.trim() === "0 of 8 cups", "default goal should be 8 cups, got " + JSON.stringify(got.text));
+      assert(!got.coffee, "coffee button should be off by default");
+      assert(got.drinksTitles[0] === "Water" && !got.drinksTitles.includes("Seltzer or water"),
+        "the drinks habit should be labeled just Water, got " + JSON.stringify(got.drinksTitles));
+      await resetDay(page, "2026-10-21");
+      await clearFake(page);
+    });
+
+    await test("r14.v27b3.settings-coffee-and-flow", async () => {
+      const page = await freshPage(browser);
+      await setFake(page, "2026-10-21");
+      await seedDone(page);
+      await setSettings(page, 10, "oz", true);
+      let text = await counterText(page);
+      assert(text === "0 of 80 oz", "goal 10 in ounces should show 0 of 80 oz, got " + JSON.stringify(text));
+      let hasCoffee = await page.evaluate(() => !!document.querySelector('[data-act="coffee"]'));
+      assert(hasCoffee, "coffee button should appear when the toggle is on");
+      await click(page, '[data-act="water-plus"]');
+      text = await counterText(page);
+      assert(text === "8 of 80 oz", "one tap in ounces should show 8 of 80 oz, got " + JSON.stringify(text));
+      const sc0 = await page.evaluate(() => { const s = scoreDay("2026-10-21"); return { score: s.score, of: s.of }; });
+      await click(page, '[data-act="coffee"]');
+      let cf = await page.evaluate(() => ({
+        coffee: getDayF("2026-10-21", "coffee"),
+        on: (document.querySelector('[data-act="coffee"]') || {}).className || ""
+      }));
+      const sc1 = await page.evaluate(() => { const s = scoreDay("2026-10-21"); return { score: s.score, of: s.of }; });
+      assert(cf.coffee === true && cf.on.indexOf("on") >= 0, "coffee tap should set coffee true with the button highlighted, got " + JSON.stringify(cf));
+      assert(sc1.score === sc0.score && sc1.of === sc0.of, "coffee must not change the score, got " + JSON.stringify({ sc0, sc1 }));
+      await click(page, '[data-act="coffee"]');
+      cf = await page.evaluate(() => getDayF("2026-10-21", "coffee"));
+      assert(cf === false, "a second coffee tap should toggle it off, got " + JSON.stringify(cf));
+      // The flow card carries the coffee button too, for its own day.
+      await click(page, '[data-act="checkin-open"]');
+      await wait(350);
+      const flow = await page.evaluate(() => {
+        const card = document.querySelector(".checkin-card");
+        const q = card ? card.querySelector(".checkin-q") : null;
+        return { card: !!card, q: q ? q.textContent.trim() : null, coffee: !!(card && card.querySelector('[data-act="coffee"]')) };
+      });
+      assert(flow.card && flow.q === "Protein at breakfast?" && flow.coffee,
+        "the flow card should carry the coffee button at Q1, got " + JSON.stringify(flow));
+      await click(page, '.checkin-card [data-act="coffee"]');
+      cf = await page.evaluate(() => getDayF("2026-10-21", "coffee"));
+      assert(cf === true, "a flow coffee tap should log coffee for the flow day, got " + JSON.stringify(cf));
+      await resetDay(page, "2026-10-21");
+      await clearFake(page);
+    });
+
+    await test("r14.v27b3.goal-drives-scoring", async () => {
+      const page = await freshPage(browser);
+      await setFake(page, "2026-10-21");
+      await seedDone(page);
+      await setSettings(page, 10, "cups", false);
+      let text = await counterText(page);
+      assert(text === "0 of 10 cups", "goal 10 in cups should show 0 of 10 cups, got " + JSON.stringify(text));
+      let hasCoffee = await page.evaluate(() => !!document.querySelector('[data-act="coffee"]'));
+      assert(!hasCoffee, "coffee button should hide when the toggle is off");
+      for (let i = 0; i < 8; i++) await click(page, '[data-act="water-plus"]');
+      let got = await page.evaluate(() => ({ text: (document.querySelector(".water-count") || {}).textContent.trim(), drinks: scoreDay("2026-10-21").items.drinks }));
+      assert(got.text === "8 of 10 cups" && got.drinks === false,
+        "8 cups under a 10 goal should still score drinks 0, got " + JSON.stringify(got));
+      for (let i = 0; i < 2; i++) await click(page, '[data-act="water-plus"]');
+      got = await page.evaluate(() => ({ text: (document.querySelector(".water-count") || {}).textContent.trim(), drinks: scoreDay("2026-10-21").items.drinks }));
+      assert(got.text === "10 of 10 cups" && got.drinks === true,
+        "reaching the 10 goal should score drinks true, got " + JSON.stringify(got));
+      // Restore defaults so later sections start clean.
+      await page.evaluate(() => { opSettings("waterGoal", 8); opSettings("waterUnit", "cups"); opSettings("coffeeOn", false); });
+      await resetDay(page, "2026-10-21");
+      await clearFake(page);
+    });
+
+    await test("r14.v27b3.alcohol-toggle", async () => {
+      const page = await freshPage(browser);
+      await setFake(page, "2026-10-21");
+      await seedDone(page);
+      await wait(350);
+      // Baseline: alcohol off by default — question absent, row hidden,
+      // item unscored (8/9). The shared profile may carry alcoholOn=true
+      // from earlier tests that enabled it, so drop the setting first to
+      // observe the true fresh-profile default.
+      await page.evaluate(() => { try { if (state.settings && state.settings.f) delete state.settings.f.alcoholOn; } catch (e) {} saveLocal(); render(true); });
+      await wait(350);
+      let base = await page.evaluate(() => {
+        const s = scoreDay("2026-10-21");
+        return {
+          q: checkinQuestions("2026-10-21").map((x) => x.field),
+          row: !!Array.from(document.querySelectorAll(".habit-title")).find((t) => t.textContent.trim() === "No alcohol"),
+          score: s.score, of: s.of, item: s.items.noAlcohol,
+          nums: Array.from(document.querySelectorAll(".habit-num")).map((n) => n.textContent.trim())
+        };
+      });
+      assert(!base.q.includes("noAlcohol") && !base.row && base.item === null && base.score === 8 && base.of === 9,
+        "baseline with alcohol off by default should unask, hide, and unscore it (8/9), got " + JSON.stringify(base));
+      assert(JSON.stringify(base.nums) === JSON.stringify(["1", "2", "3", "4", "5", "6", "7", "8", "9"]),
+        "numbering should stay contiguous with alcohol hidden, got " + JSON.stringify(base.nums));
+      // Toggle on: question asked, row shown, item scored (9/10).
+      await click(page, "#gearBtn");
+      await page.evaluate(() => { document.getElementById("setAlcoholOn").checked = true; });
+      await click(page, "#setSave");
+      let on = await page.evaluate(() => {
+        const s = scoreDay("2026-10-21");
+        return {
+          q: checkinQuestions("2026-10-21").map((x) => x.field),
+          row: !!Array.from(document.querySelectorAll(".habit-title")).find((t) => t.textContent.trim() === "No alcohol"),
+          score: s.score, of: s.of, item: s.items.noAlcohol,
+          nums: Array.from(document.querySelectorAll(".habit-num")).map((n) => n.textContent.trim())
+        };
+      });
+      assert(on.q.includes("noAlcohol") && on.row && on.item === true && on.score === 9 && on.of === 10,
+        "alcohol on should ask, show, and score it (9/10), got " + JSON.stringify(on));
+      assert(JSON.stringify(on.nums) === JSON.stringify(["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]),
+        "numbering should run 1-10 with alcohol shown, got " + JSON.stringify(on.nums));
+      // The flow includes it too: reopening shows 12 questions, starting at Q1.
+      await click(page, '[data-act="checkin-open"]');
+      await wait(350);
+      const flow = await page.evaluate(() => {
+        const card = document.querySelector(".checkin-card");
+        const prog = card ? card.querySelector(".checkin-progress") : null;
+        const q = card ? card.querySelector(".checkin-q") : null;
+        return { card: !!card, prog: prog ? prog.textContent.trim() : null, q: q ? q.textContent.trim() : null };
+      });
+      assert(flow.card && flow.prog === "1 of 12" && flow.q === "Protein at breakfast?",
+        "the flow should show 12 questions with alcohol on, got " + JSON.stringify(flow));
+      // Restore OFF (the default) so later sections start clean.
+      await click(page, "#gearBtn");
+      await page.evaluate(() => { document.getElementById("setAlcoholOn").checked = false; });
+      await click(page, "#setSave");
+      const back = await page.evaluate(() => ({
+        q: checkinQuestions("2026-10-21").map((x) => x.field),
+        of: scoreDay("2026-10-21").of
+      }));
+      assert(!back.q.includes("noAlcohol") && back.of === 9, "restoring alcohol off should exclude it again, got " + JSON.stringify(back));
+      await resetDay(page, "2026-10-21");
       await clearFake(page);
     });
   }

@@ -45,6 +45,21 @@
     <label class="fld">Workouts per week
       <input id="setWorkoutTarget" type="number" min="1" max="7" step="1" inputmode="numeric">
     </label>
+    <label class="fld">Water goal (cups)
+      <input id="setWaterGoal" type="number" min="1" max="100" step="1" inputmode="numeric">
+    </label>
+    <label class="fld">Water unit
+      <select id="setWaterUnit">
+        <option value="cups">Cups</option>
+        <option value="oz">Ounces (8 oz = 1 cup)</option>
+      </select>
+    </label>
+    <div class="fld">
+      <label><input id="setCoffeeOn" type="checkbox"> Show "Had a coffee" button</label>
+    </div>
+    <div class="fld">
+      <label><input id="setAlcoholOn" type="checkbox"> Show "No alcohol" question</label>
+    </div>
     <p class="inline-err" id="setError" role="alert" hidden></p>
     <div class="fld">
       <div class="fld-label" id="setRestLabel">Rest day</div>

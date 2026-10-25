@@ -58,8 +58,8 @@ window.STEADY = {
   },
   {
    "id": "drinks",
-   "title": "Seltzer or water",
-   "sub": "No sugary drinks. Coffee is fine",
+   "title": "Water",
+   "sub": "Tap +1 for each cup",
    "field": "drinks"
   },
   {
