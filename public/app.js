@@ -520,6 +520,53 @@ function secondsWeekTotal(date) {
   for (var i = 0; i < 7; i++) n += secondsDayTotal(addDays(sun, i));
   return n;
 }
+/* v27b item 4: Sunday weekly review — one screen for the past week.
+   Rest days are excluded from every denominator; the tab always opens on
+   the just-ended week, and Later never advances past it. Water days-at-goal
+   counts only days with a numeric counter value at goal (a legacy
+   drinks=true day keeps its score but is not a water day). Most-missed
+   ties break by the canonical item order below. */
+function justEndedWeek() { return addDays(weekSunday(todayStr), -7); }
+function reviewWeekStats(sun) {
+  var keys = ["protein", "veg", "mealsPlan", "treat", "kitchenClosed", "drinks", "noAlcohol", "steps", "workout", "bed"];
+  var labels = { protein: "Protein", veg: "Veg", mealsPlan: "On plan", treat: "Treat", kitchenClosed: "Kitchen closed", drinks: "Water", noAlcohol: "No alcohol", steps: "Steps", workout: "Workout", bed: "Bed" };
+  var score = 0, of = 0, waterHit = 0, nonRest = 0, missed = {}, appl = {};
+  keys.forEach(function (k) { missed[k] = 0; appl[k] = 0; });
+  var days = [];
+  for (var i = 0; i < 7; i++) {
+    var d = addDays(sun, i);
+    if (isRest(d)) { days.push({ date: d, rest: true }); continue; }
+    nonRest++;
+    var s = scoreDay(d);
+    score += s.score; of += s.of;
+    var w = getDayF(d, "water");
+    if (typeof w === "number" && w >= waterGoal()) waterHit++;
+    keys.forEach(function (k) { if (s.items[k] !== null) { appl[k]++; if (!s.items[k]) missed[k]++; } });
+    days.push({ date: d, rest: false, score: s.score, of: s.of });
+  }
+  var best = null, bestMissed = 0;
+  keys.forEach(function (k) { if (missed[k] > bestMissed) { bestMissed = missed[k]; best = k; } });
+  return { score: score, of: of, seconds: secondsWeekTotal(sun), waterHit: waterHit, nonRest: nonRest, best: best, bestMissed: bestMissed, bestAppl: best ? appl[best] : 0, labels: labels, days: days };
+}
+function renderReview() {
+  if (!ui.reviewWs) ui.reviewWs = justEndedWeek();
+  var sun = ui.reviewWs, st = reviewWeekStats(sun), je = justEndedWeek();
+  var DOW3 = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  var h = '<section class="card"><h3>Weekly review</h3><div class="review-nav">' +
+    '<button data-act="review-prev">← Earlier</button>' +
+    '<span class="review-week">Week of ' + shortDate(sun) + '</span>' +
+    '<button data-act="review-next"' + (sun >= je ? ' disabled' : '') + '>Later →</button></div>' +
+    '<div class="review-figures">' +
+    '<div class="review-score">Score: ' + st.score + ' of ' + st.of + '</div>' +
+    '<div class="review-seconds">Seconds: ' + st.seconds + '</div>' +
+    '<div class="review-water">Water: ' + st.waterHit + ' of ' + st.nonRest + ' days at goal</div>' +
+    '<div class="review-missed">Most missed: ' + (st.best ? st.labels[st.best] + ' (' + st.bestMissed + ' of ' + st.bestAppl + ' days)' : 'none') + '</div></div>' +
+    '<div class="review-days">';
+  st.days.forEach(function (dy) {
+    h += '<div class="review-day">' + DOW3[dowOf(dy.date)] + ' ' + shortDate(dy.date) + ' · ' + (dy.rest ? 'rest' : dy.score + '/' + dy.of) + '</div>';
+  });
+  return h + '</div></section>';
+}
 function workoutsInWeek(anyDate) {
   var sun = weekSunday(anyDate), n = 0;
   for (var i = 0; i < 7; i++) if (getDayF(addDays(sun, i), "workout")) n++;
@@ -557,6 +604,7 @@ function render(force) {
   if (ui.tab === "today") html = renderToday();
   else if (ui.tab === "workout") html = renderWorkout();
   else if (ui.tab === "plan") html = renderPlan();
+  else if (ui.tab === "review") html = renderReview();
   else html = renderMeals();
   if (TM.on) html = tmBannerHTML() + html; /* TESTMODE */
   mainEl().innerHTML = html;
@@ -632,6 +680,7 @@ function gotoTab(tab, planStep) {
   var changed = tab !== ui.tab || (!!planStep && planStep !== ui.planStep);
   if (tab !== ui.tab) hideUndoToast();
   ui.tab = tab;
+  if (tab === "review") ui.reviewWs = justEndedWeek();
   if (planStep) ui.planStep = planStep;
   saveUi();
   render(true);
@@ -1950,6 +1999,16 @@ document.addEventListener("click", function (ev) {
     return;
   }
   // plan
+  if (act === "review-prev") {
+    if (!ui.reviewWs) ui.reviewWs = justEndedWeek();
+    ui.reviewWs = addDays(ui.reviewWs, -7);
+    saveUi(); render(true); return;
+  }
+  if (act === "review-next") {
+    if (!ui.reviewWs) ui.reviewWs = justEndedWeek();
+    if (ui.reviewWs < justEndedWeek()) ui.reviewWs = addDays(ui.reviewWs, 7);
+    saveUi(); render(true); return;
+  }
   if (act === "plan-week") {
     var wNew = el.getAttribute("data-w");
     var wChanged = wNew !== currentPlanWeek();

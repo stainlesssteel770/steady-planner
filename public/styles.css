@@ -373,3 +373,9 @@ dialog::backdrop { background: rgba(0,0,0,0.45); }
 
 /* v27a item 4: explicit-No grey style (false, not missing). */
 .tick.no { background: var(--chip); border-color: var(--line); color: var(--muted); }
+
+/* v27b item 4: weekly review layout. */
+.review-nav { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 8px 0 12px; }
+.review-week { font-weight: 700; }
+.review-figures > div { margin: 6px 0; }
+.review-day { margin: 2px 0; color: var(--muted); }

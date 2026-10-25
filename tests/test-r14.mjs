@@ -1981,6 +1981,102 @@ try {
       await clearFake(page);
     });
   }
+
+  /* ============ v27b item 4: Sunday weekly review ============ */
+  if (run("v27b4")) {
+    const setFake = async (page, fake) => {
+      await page.evaluate((f) => { try { localStorage.setItem("steady.testmode", JSON.stringify({ fake: f, lastSeen: Date.now() })); } catch (e) {} }, fake);
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
+    };
+    const clearFake = async (page) => {
+      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.close();
+    };
+    const click = async (page, sel) => { await page.evaluate((s) => document.querySelector(s).click(), sel); await wait(350); };
+    // Seed the Oct 11-17 week (fake today Wed Oct 21 => just-ended week is
+    // Oct 11) plus clear Oct 4-10 so the prev-week figures are deterministic.
+    const seedWeek = async (page) => {
+      await page.evaluate(() => {
+        ["2026-10-04", "2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08", "2026-10-09", "2026-10-10",
+         "2026-10-11", "2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17"].forEach((d) => { state.days[d] = { f: {} }; });
+        const full = (d, over) => {
+          const f = {};
+          ["proteinB", "proteinL", "proteinD", "vegL", "vegD", "mealsPlan", "treat", "kitchenClosed", "bed", "workoutOff"].forEach((k) => { f[k] = { v: true, ts: 1 }; });
+          f.steps = { v: 9000, ts: 1 };
+          Object.keys(over || {}).forEach((k) => { f[k] = over[k]; });
+          state.days[d] = { f };
+        };
+        const num = (v) => ({ v, ts: 1 });
+        const fals = (k) => ({ v: false, ts: 1 });
+        full("2026-10-11", { water: num(8), secondsB: num(3) });
+        full("2026-10-12", { treat: fals("treat"), water: num(8), secondsL: num(2) });
+        full("2026-10-13", { treat: fals("treat"), water: num(5) });
+        full("2026-10-14", { treat: fals("treat"), water: num(8) });
+        full("2026-10-15", { steps: num(3000), drinks: num(true) });
+        // Fri Oct 16 is pre-rest: only daytime habits apply.
+        state.days["2026-10-16"] = { f: { proteinB: num(true), proteinL: num(true), vegL: num(true), workoutOff: num(true), steps: num(9000), water: num(10) } };
+        saveLocal(); ui.tab = "today"; saveUi(); render(true);
+      });
+    };
+    const resetWeek = async (page) => {
+      await page.evaluate(() => {
+        ["2026-10-04", "2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08", "2026-10-09", "2026-10-10",
+         "2026-10-11", "2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17"].forEach((d) => { state.days[d] = { f: {} }; });
+        saveLocal(); render(true);
+      });
+    };
+    const reviewFigs = (page) => page.evaluate(() => {
+      const t = (s) => { const el = document.querySelector(s); return el ? el.textContent.trim() : null; };
+      const next = document.querySelector('[data-act="review-next"]');
+      return {
+        week: t(".review-week"), score: t(".review-score"), seconds: t(".review-seconds"),
+        water: t(".review-water"), missed: t(".review-missed"),
+        nextDisabled: next ? next.disabled : null,
+        days: Array.from(document.querySelectorAll(".review-day")).map((d) => d.textContent.trim())
+      };
+    });
+
+    await test("r14.v27b4.figures-and-nav", async () => {
+      const page = await freshPage(browser);
+      await setFake(page, "2026-10-21");
+      // Alcohol off + goal 8 so the figures are deterministic regardless of
+      // what earlier sections left in the shared profile.
+      await page.evaluate(() => { opSettings("alcoholOn", false); opSettings("waterGoal", 8); });
+      await seedWeek(page);
+      await click(page, '[data-tab="review"]');
+      let r = await reviewFigs(page);
+      assert(r.week === "Week of Oct 11", "review should default to the just-ended week, got " + JSON.stringify(r));
+      assert(r.score === "Score: 45 of 50", "week score should be 45 of 50, got " + JSON.stringify(r));
+      assert(r.seconds === "Seconds: 5", "week seconds should be 5, got " + JSON.stringify(r));
+      assert(r.water === "Water: 4 of 6 days at goal", "water should be 4 of 6 days at goal, got " + JSON.stringify(r));
+      assert(r.missed && r.missed.includes("Treat") && r.missed.includes("3 of 5"),
+        "most missed should be Treat 3 of 5, got " + JSON.stringify(r));
+      assert(r.nextDisabled === true, "next should be disabled on the just-ended week, got " + JSON.stringify(r));
+      assert(r.days.length === 7 && r.days[0].includes("9/9") && r.days[6].includes("rest"),
+        "per-day lines should cover all 7 days with Sat as rest, got " + JSON.stringify(r.days));
+      // Earlier week: empty, so all figures drop; tie-break picks Protein.
+      // (Sun Oct 4 is itself Simchas Torah, a rest day, so this week has
+      // 5 non-rest days: 4 plain x 9 + 1 pre-rest x 5 = 41.)
+      await click(page, '[data-act="review-prev"]');
+      r = await reviewFigs(page);
+      assert(r.week === "Week of Oct 4", "prev should move to the Oct 4 week, got " + JSON.stringify(r));
+      assert(r.score === "Score: 0 of 41", "empty week score should be 0 of 41, got " + JSON.stringify(r));
+      assert(r.seconds === "Seconds: 0" && r.water === "Water: 0 of 5 days at goal",
+        "empty week seconds/water should be 0, got " + JSON.stringify(r));
+      assert(r.missed && r.missed.includes("Protein") && r.missed.includes("5 of 5"),
+        "empty week most missed should be Protein 5 of 5, got " + JSON.stringify(r));
+      assert(r.nextDisabled === false, "next should be enabled after moving back, got " + JSON.stringify(r));
+      // Round-trip back to the just-ended week.
+      await click(page, '[data-act="review-next"]');
+      r = await reviewFigs(page);
+      assert(r.week === "Week of Oct 11" && r.score === "Score: 45 of 50" && r.nextDisabled === true,
+        "next should return to the just-ended week, got " + JSON.stringify(r));
+      await resetWeek(page);
+      await clearFake(page);
+    });
+  }
 } finally {
   await browser.close();
 }
