@@ -189,12 +189,13 @@ try {
   /* ============ Item 4: rest day drops the orphaned leftover lunch ============ */
   if (run("bf4")) {
     await test("r14.bf4.rest-day-orphaned-leftover-lunch-dropped", async () => {
-      const fmtD = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
-      const now = new Date();
-      const sun = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay() + 7);
-      const mon = new Date(sun.getFullYear(), sun.getMonth(), sun.getDate() + 1);
-      const sunS = fmtD(sun), monS = fmtD(mon);
       const page = await freshPage(browser);
+      // Weeks from the app's own todayStr (real clock minus 4h), never from
+      // the test runner's clock: the two disagree between midnight and 4am.
+      const { sunS, monS } = await page.evaluate(() => {
+        const sun = addDays(weekSunday(todayStr), 7);
+        return { sunS: sun, monS: addDays(sun, 1) };
+      });
       // Next week's plan: Sunday stew dinner (lo-capable), Monday leftover lunch.
       await page.evaluate((wk) => {
         state.plans[wk] = { f: {
@@ -364,10 +365,10 @@ try {
     await test("r14.bf7d.proteins-header-matches-selected-week", async () => {
       const page = await freshPage(browser);
       const res = await page.evaluate(() => {
-        const fmtD = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
-        const now = new Date();
-        const cur = fmtD(new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay()));
-        const nxt = fmtD(new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay() + 7));
+        // Weeks from the app's own todayStr, not the real clock: the app's
+        // today runs 4h behind, so the two disagree between midnight and 4am.
+        const cur = weekSunday(todayStr);
+        const nxt = addDays(cur, 7);
         const head = () => { const hs = Array.from(document.querySelectorAll("#main h3")); const h = hs.find((x) => /proteins/i.test(x.textContent)); return h ? h.textContent : ""; };
         ui.tab = "plan"; ui.planStep = "pro"; ui.planWs = nxt; saveUi(); render(true);
         const nextHead = head();
@@ -384,10 +385,12 @@ try {
   if (run("bf8")) {
     await test("r14.bf8.accessible-names-and-toggle-states", async () => {
       const page = await freshPage(browser);
-      const fmtD = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
-      const now = new Date();
-      const cur = fmtD(new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay()));
-      const nxt = fmtD(new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay() + 7));
+      // Weeks from the app's own todayStr (real clock minus 4h), never from
+      // the test runner's clock: the two disagree between midnight and 4am.
+      const { cur, nxt } = await page.evaluate(() => {
+        const cur = weekSunday(todayStr);
+        return { cur, nxt: addDays(cur, 7) };
+      });
       // Every visible button on the main screens exposes an accessible name.
       const unnamedOn = async (tab, step) => page.evaluate((t, s) => {
         ui.tab = t; if (s) ui.planStep = s; saveUi(); render(true);
@@ -635,7 +638,9 @@ try {
       });
       await page.reload({ waitUntil: "networkidle0" });
       await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
-      await wait(350);
+      // Wait for the Today render to settle (not a blind 350ms): on a slow
+      // runner the flow card may not exist yet when the read runs.
+      await page.waitForFunction(() => document.querySelector(".checkin-card") || document.querySelector(".checkin-done") || document.querySelector(".rest-score"), { timeout: 10000 });
       // v27a migration: Today is now the inline check-in, so the
       // breakfast/lunch questions must be ABSENT from the flow (not
       // merely disabled ticks), and the dinner questions must lead it.
@@ -645,10 +650,11 @@ try {
         return {
           card: !!card,
           firstQ: q ? q.textContent.trim() : null,
-          fields: checkinQuestions("2027-07-22").map((x) => x.field)
+          fields: checkinQuestions("2027-07-22").map((x) => x.field),
+          sel: selDate, today: todayStr
         };
       });
-      assert(res.card, "a minor fast day should still show the check-in flow");
+      assert(res.card, "a minor fast day should still show the check-in flow, selDate=" + res.sel + " todayStr=" + res.today);
       assert(res.firstQ === "Protein at dinner?", "the fast-day flow should lead with the dinner question, got: " + JSON.stringify(res.firstQ));
       assert(res.fields.indexOf("proteinB") < 0 && res.fields.indexOf("proteinL") < 0 && res.fields.indexOf("vegL") < 0,
         "breakfast/lunch meal questions should be skipped on a minor fast, got: " + JSON.stringify(res.fields));
@@ -1040,7 +1046,8 @@ try {
       await wait(300);
       st = await state1();
       assert(!st.detail, "tapping the open meal again should collapse it");
-      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+      // v26i2 seeds the Oct-18 plan; clean it so later sections (v27a) see no stale meal wording.
+      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} try { delete state.plans["2026-10-18"]; saveLocal(); } catch (e) {} });
       await page.reload({ waitUntil: "networkidle0" });
       await page.close();
     });
