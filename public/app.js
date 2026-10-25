@@ -375,6 +375,57 @@ function checkinFlowState(date, qs) {
   if (c.done || c.qi >= c.queue.length) return { mode: "done" };
   return { mode: "flow", queue: c.queue, qi: c.qi, pass: c.pass || 1, skipped: c.skipped || [] };
 }
+/* v27b item 1: Shabbos / Yom Tov catch-up. A missed day is a non-rest day
+   in the last 7 days with some questions answered, some unanswered, and
+   no flowDone flag. A day skipped through counts as handled (completing
+   the flow sets flowDone whether questions were answered or skipped), and
+   a day never opened at all does not count: only started-but-unfinished
+   days chain, so Today is never hijacked by ancient untouched days. */
+function missedDays(today) {
+  var out = [];
+  for (var i = 1; i <= 7; i++) {
+    var d = addDays(today, -i);
+    if (isRest(d)) continue;
+    var qs = checkinQuestions(d);
+    if (!qs.length) continue;
+    if (getDayF(d, "flowDone")) continue;
+    var answered = false, unanswered = false;
+    for (var j = 0; j < qs.length; j++) {
+      if (checkinAnswer(d, qs[j]) === null) unanswered = true;
+      else answered = true;
+    }
+    if (answered && unanswered) out.unshift(d);
+  }
+  return out;
+}
+function firstUnanswered(date, qs) {
+  for (var i = 0; i < qs.length; i++) if (checkinAnswer(date, qs[i]) === null) return i;
+  return -1;
+}
+function startCatchupChain(chain) {
+  var d = chain[0], qs = checkinQuestions(d), first = firstUnanswered(d, qs);
+  selDate = d;
+  ui.checkin = { date: d, chain: chain, queue: qs.map(function (_, i) { return i; }), qi: first < 0 ? 0 : first, pass: 1, skipped: [], done: false };
+}
+function maybeStartCatchup() {
+  /* Today tab only, at the top of renderToday: when today has missed days
+     and no flow for today is already active, open the first missed day's
+     flow instead of today's. While any missed days remain, Today always
+     opens on the oldest one; Skip walks through them. No clock gate: the
+     plan's "evening" is when the user does the check-in, not a time the
+     app enforces. A mid-chain reload restarts the chain at the first
+     still-missed day; answers already given persist in day records, so it
+     resumes at the first still-unanswered question. */
+  if (isRest(todayStr)) return;
+  if (selDate !== todayStr) return;
+  var c = ui.checkin;
+  if (c && c.date === todayStr && !c.done && c.queue) return;
+  var missed = missedDays(todayStr);
+  if (!missed.length) return;
+  var chain = missed.slice();
+  if (firstUnanswered(todayStr, checkinQuestions(todayStr)) >= 0) chain.push(todayStr);
+  startCatchupChain(chain);
+}
 function checkinOpen(date) {
   var qs = checkinQuestions(date), first = 0;
   for (var i = 0; i < qs.length; i++) if (checkinAnswer(date, qs[i]) === null) { first = i; break; }
@@ -389,7 +440,24 @@ function checkinAdvance(wasSkip) {
   c.qi++;
   if (c.qi >= c.queue.length) {
     if (c.pass === 1 && c.skipped.length) { c.queue = c.skipped.slice(); c.qi = 0; c.pass = 2; c.skipped = []; }
-    else { c.done = true; saveUi(); }
+    else {
+      opDaySilent(date, "flowDone", true, { silent: true });
+      if (c.chain) {
+        var advanced = false;
+        var idx = c.chain.indexOf(date);
+        for (var k = idx + 1; k < c.chain.length; k++) {
+          var nx = c.chain[k], nqs = checkinQuestions(nx), first = firstUnanswered(nx, nqs);
+          if (first >= 0) {
+            selDate = nx;
+            ui.checkin = { date: nx, chain: c.chain, queue: nqs.map(function (_, i) { return i; }), qi: first, pass: 1, skipped: [], done: false };
+            advanced = true;
+            break;
+          }
+          opDaySilent(nx, "flowDone", true, { silent: true });
+        }
+        if (!advanced) { c.done = true; saveUi(); selDate = todayStr; }
+      } else { c.done = true; saveUi(); }
+    }
   }
   render(true);
 }
@@ -572,6 +640,7 @@ function checkinEntries() {
   return out;
 }
 function renderToday() {
+  maybeStartCatchup();
   var date = selDate, rest = restName(date), pre = !rest && isPreRest(date);
   var sc = rest ? null : scoreDay(date);
   /* v26 item 3: completion moment — the first render on which today is
@@ -2188,7 +2257,7 @@ function sanitizeBackup(parsed) {
     if (ts === null) ts = 0;
     return { v: raw.v, ts: ts };
   }
-  var DAY_BOOL = ["proteinB", "proteinL", "proteinD", "vegL", "vegD", "mealsPlan", "treat", "kitchenClosed", "drinks", "noAlcohol", "workout", "workoutOff", "bed", "seconds", "caughtUp", "stepsNo"];
+  var DAY_BOOL = ["proteinB", "proteinL", "proteinD", "vegL", "vegD", "mealsPlan", "treat", "kitchenClosed", "drinks", "noAlcohol", "workout", "workoutOff", "bed", "seconds", "caughtUp", "stepsNo", "flowDone"];
   var DAY_NUM = { steps: [0, 100000], weight: [50, 700], waist: [10, 90], water: [0, 100000], snackX: [0, 50], drinkX: [0, 50], secondsB: [0, 50], secondsL: [0, 50], secondsD: [0, 50] };
   var DAY_STR = ["workoutNote", "note"];
   function cleanDayField(name, c) {

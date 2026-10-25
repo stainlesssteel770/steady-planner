@@ -1553,6 +1553,69 @@ try {
       await clearFake(page);
     });
   }
+  if (run("v27b1")) {
+    const setFake = async (page, fake) => {
+      await page.evaluate((f) => { try { localStorage.setItem("steady.testmode", JSON.stringify({ fake: f, lastSeen: Date.now() })); } catch (e) {} }, fake);
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
+    };
+    const clearFake = async (page) => {
+      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.close();
+    };
+    const click = async (page, sel) => { await page.evaluate((s) => document.querySelector(s).click(), sel); await wait(350); };
+    const resetDay = async (page, date) => page.evaluate((d) => {
+      state.days[d] = { f: {} }; saveLocal();
+      try { delete ui.checkin; } catch (e) {}
+      ui.tab = "today"; saveUi(); render(true);
+    }, date);
+    const flowState = (page) => page.evaluate(() => {
+      const card = document.querySelector(".checkin-card");
+      const q = card ? card.querySelector(".checkin-q") : null;
+      return { card: !!card, q: q ? q.textContent.trim() : null, selDate };
+    });
+
+    await test("r14.v27b1.catchup-friday-then-sunday", async () => {
+      const page = await freshPage(browser);
+      // Clear leaked seeds from earlier sections inside the 7-day window.
+      await resetDay(page, "2026-10-19");
+      await resetDay(page, "2026-10-20");
+      await resetDay(page, "2026-10-21");
+      await setFake(page, "2026-10-25"); // Sunday, plain day
+      await page.evaluate(() => {
+        const full = {};
+        ["proteinB", "proteinL", "proteinD", "vegL", "vegD", "mealsPlan", "treat", "kitchenClosed", "drinks", "noAlcohol", "workoutOff", "bed"].forEach((k) => { full[k] = { v: true, ts: 1 }; });
+        full.steps = { v: 9000, ts: 1 };
+        state.days["2026-10-22"] = { f: full };
+        const fri = {};
+        ["proteinB", "proteinL", "vegL", "drinks", "noAlcohol"].forEach((k) => { fri[k] = { v: true, ts: 1 }; });
+        fri.steps = { v: 9000, ts: 1 };
+        // workout left unanswered: Friday's first unanswered question.
+        state.days["2026-10-23"] = { f: fri };
+        state.days["2026-10-25"] = { f: {} };
+        try { delete ui.checkin; } catch (e) {}
+        ui.tab = "today"; saveUi(); render(true);
+      });
+      await wait(350);
+      let s = await flowState(page);
+      assert(s.card, "Sunday evening should open on Friday's flow, got " + JSON.stringify(s));
+      assert(s.selDate === "2026-10-23", "catch-up should open on Friday, got " + JSON.stringify(s.selDate));
+      assert(s.q === "Workout done?", "Friday's first unanswered question should be the workout, got " + JSON.stringify(s.q));
+      // Answering Friday's last question completes it: the chain moves to
+      // Sunday (today), skipping Shabbos (Sat Oct 24) entirely.
+      await click(page, '[data-act="checkin-yes"]');
+      s = await flowState(page);
+      assert(s.selDate === "2026-10-25", "after Friday, the flow should move to Sunday, got " + JSON.stringify(s.selDate));
+      assert(s.q === "Protein at breakfast?", "Sunday's flow should start at breakfast protein, got " + JSON.stringify(s.q));
+      const done = await page.evaluate(() => getDayF("2026-10-23", "flowDone"));
+      assert(done === true, "completing Friday's flow should mark it handled, got " + JSON.stringify(done));
+      await resetDay(page, "2026-10-22");
+      await resetDay(page, "2026-10-23");
+      await resetDay(page, "2026-10-25");
+      await clearFake(page);
+    });
+  }
 } finally {
   await browser.close();
 }
