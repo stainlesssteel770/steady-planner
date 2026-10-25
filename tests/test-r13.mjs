@@ -188,6 +188,13 @@ try {
 
     await test("r13.mdgap.real-button-toggle-rebuild-and-no-warning", async () => {
       const page = await freshPage(browser);
+      // Saturday pin (same time-proofing as the picker section below): the
+      // test seeds Friday of the current week, but on Saturday Friday is
+      // past, so the rebuild drops it and m5L resolves to nothing. Wed
+      // 2026-10-21 keeps the same current week with Friday still ahead.
+      await page.evaluate(() => { try { localStorage.setItem("steady.testmode", JSON.stringify({ fake: "2026-10-21", lastSeen: Date.now() })); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
       const setup = await page.evaluate(() => {
         const tw = weekSunday(todayStr);
         const cells = {
@@ -221,6 +228,8 @@ try {
       }, setup.tw);
       assert(after.tag === "M", "with the toggle on, Friday lunch should be fillable (meat) under the dairy dinner, got tag " + after.tag);
       assert(!after.warn, "with the toggle on, the meat/dairy day warning must not show");
+      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
       await page.close();
     });
   }

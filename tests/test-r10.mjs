@@ -178,6 +178,13 @@ try {
   if (run("yomtov")) {
     await test("r10.yomtov.no-line-on-plain-friday", async () => {
       const page = await freshPage(browser);
+      // Weekday pin: this test hardcodes the week of 2026-10-18, and the
+      // week view renders past days as one-line past-lines, not cards —
+      // so once Friday 2026-10-23 is past, no Friday card exists at all.
+      // Run as Wed 2026-10-21 so Friday is still ahead.
+      await page.evaluate(() => { try { localStorage.setItem("steady.testmode", JSON.stringify({ fake: "2026-10-21", lastSeen: Date.now() })); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
       const got = await page.evaluate(() => {
         const week = "2026-10-18"; // Sunday; Friday is 2026-10-23, a plain Erev Shabbos
         state.plans[week] = { f: { pro: { v: ["chicken", "salmon"], ts: 1 }, m0D: { v: { id: "c1" }, ts: 1 } } };
@@ -190,6 +197,8 @@ try {
       assert(got !== null, "Friday card not rendered for the Oct 23 week");
       assert(!got.includes("Tonight is Yom Tov"), "plain Friday must not show the Yom Tov line, got: " + got.slice(0, 300));
       assert(got.includes("Friday night is Shabbos"), "Friday should keep its Shabbos note, got: " + got.slice(0, 300));
+      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
       await page.close();
     });
 

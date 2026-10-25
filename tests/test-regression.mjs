@@ -192,6 +192,12 @@ try {
   /* Round 2: toast width + dismissed on tab change */
   await test("reg.toast-width-and-tab-dismiss", async () => {
     const page = await freshPage(browser);
+    // Saturday pin: 2026-10-24 is the week's last day, so a fresh build of
+    // the current week yields no meals (all slots past/rest) and no
+    // week-clear button. Run as Wed 2026-10-21 — same current week, days ahead.
+    await page.evaluate(() => { try { localStorage.setItem("steady.testmode", JSON.stringify({ fake: "2026-10-21", lastSeen: Date.now() })); } catch (e) {} });
+    await page.reload({ waitUntil: "networkidle0" });
+    await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
     const { tw } = await weeks(page);
     await buildViaUI(page, tw);
     await clickSel(page, '[data-act="week-clear"]');
@@ -202,6 +208,8 @@ try {
     await wait(200);
     const gone = await page.evaluate(() => !document.querySelector(".undo-toast"));
     assert(gone, "undo toast should be dismissed on tab change");
+    await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+    await page.reload({ waitUntil: "networkidle0" });
     await page.close();
   });
 
@@ -270,6 +278,11 @@ try {
   /* Round 1: weekly check-in inline error */
   await test("reg.checkin-inline-error", async () => {
     const page = await freshPage(browser);
+    // Saturday pin: on a rest day Today is the rest screen, so the weekly
+    // check-in card (weighDetails) never renders. Run as Wed 2026-10-21.
+    await page.evaluate(() => { try { localStorage.setItem("steady.testmode", JSON.stringify({ fake: "2026-10-21", lastSeen: Date.now() })); } catch (e) {} });
+    await page.reload({ waitUntil: "networkidle0" });
+    await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
     await page.evaluate(() => { document.getElementById("weighDetails").open = true; });
     await page.evaluate(() => { document.getElementById("ciWeight").value = "999"; });
     await clickSel(page, '[data-act="checkin-save"]');
@@ -279,6 +292,8 @@ try {
       return { hidden: !e || e.hidden, text: e ? e.textContent : "" };
     });
     assert(!res.hidden && /[Ww]eight/.test(res.text), "check-in error should show inline: " + JSON.stringify(res));
+    await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+    await page.reload({ waitUntil: "networkidle0" });
     await page.close();
   });
 

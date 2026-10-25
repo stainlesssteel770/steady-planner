@@ -185,15 +185,18 @@ try {
       assert(onPlan, "banner should also show on the Plan tab");
       assert(await clickBtn(page, '#bottomNav button[data-tab="today"]'), "today nav missing");
       await wait(300);
-      // A real change in test mode: tick a protein box on the fake Sunday.
+      // A real change in test mode: answer the fake Sunday's first
+      // check-in question. (v27a: Today shows the one-question flow, not
+      // the checklist, so the old protein-tick step has no button to click;
+      // the flow Yes writes the same fake-date change.)
       const ticked = await page.evaluate(() => {
-        const h = [...document.querySelectorAll(".habit")].find((e) => (e.querySelector(".habit-title") || {}).textContent === "Protein at every meal");
-        const b = h && h.querySelector('[data-act="tick"]');
-        if (!b) return false;
-        b.click();
+        const card = document.querySelector(".checkin-card");
+        const yes = card && card.querySelector('[data-act="checkin-yes"]');
+        if (!yes) return false;
+        yes.click();
         return true;
       });
-      assert(ticked, "protein tick button missing in test mode");
+      assert(ticked, "flow Yes button missing in test mode");
       await wait(300);
       const changed = await page.evaluate((fake) => {
         const st = JSON.parse(localStorage.getItem("steady.state") || "{}");

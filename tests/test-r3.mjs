@@ -189,6 +189,12 @@ try {
     let page, tw, nw;
     await test("r3.b6.empty-week-keeps-park", async () => {
       page = await freshPage(browser);
+      // Saturday pin (see reg.toast-width): a fresh Saturday build of the
+      // current week yields no meals, so week-clear never renders. Wed pin
+      // keeps the same current week with days ahead.
+      await page.evaluate(() => { try { localStorage.setItem("steady.testmode", JSON.stringify({ fake: "2026-10-21", lastSeen: Date.now() })); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
       ({ tw, nw } = await weeks(page));
       await buildViaUI(page, tw);
       await page.click('[data-act="week-clear"]');
@@ -256,6 +262,8 @@ try {
       assert(res.has, "restore should bring the meals back");
       const lc = await getLC(page);
       assert(!lc, "park should be consumed by restore");
+      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
       await page.close();
     });
   }

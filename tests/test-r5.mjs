@@ -235,6 +235,11 @@ try {
 
     await test("r5.add2.two-weeks-parked-independently", async () => {
       const page = await freshPage(browser);
+      // Saturday pin: a fresh Saturday build yields no meals, so week-clear
+      // never renders. Wed 2026-10-21 keeps the same current week, days ahead.
+      await page.evaluate(() => { try { localStorage.setItem("steady.testmode", JSON.stringify({ fake: "2026-10-21", lastSeen: Date.now() })); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
       const { tw, nw } = await weeks(page);
       await buildViaUI(page, tw);
       await clickEl(page, '[data-act="week-clear"]');
@@ -253,6 +258,8 @@ try {
       await wait(300);
       const n = await mealCount(page, nw);
       assert(n > 0, "next week's parked plan should still restore, meals=" + n);
+      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
       await page.close();
     });
 
@@ -279,6 +286,11 @@ try {
   if (run("add3")) {
     await test("r5.add3.built-week-opens-on-week-step", async () => {
       const page = await freshPage(browser);
+      // Saturday pin, same reason as add2: a meal-less Saturday build never
+      // opens its Week step.
+      await page.evaluate(() => { try { localStorage.setItem("steady.testmode", JSON.stringify({ fake: "2026-10-21", lastSeen: Date.now() })); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
       const { tw, nw } = await weeks(page);
       await buildViaUI(page, tw);
       await clickEl(page, '[data-act="plan-week"][data-w="' + nw + '"]');
@@ -296,6 +308,8 @@ try {
       await wait(250);
       step = await page.evaluate(() => ui.planStep);
       assert(step === "shop", "re-tapping the current week must not change the step, got: " + step);
+      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
       await page.close();
     });
   }

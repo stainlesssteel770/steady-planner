@@ -57,6 +57,12 @@ try {
   if (run("b8")) {
     await test("r4.b8.weekclear-undo-blocked-by-protein-edit", async () => {
       const page = await freshPage(browser);
+      // Saturday pin: a fresh Saturday build yields no meals, so the
+      // "built week should have meals" setup assert fails. Wed 2026-10-21
+      // keeps the same current week with days ahead. Cleared at the end.
+      await page.evaluate(() => { try { localStorage.setItem("steady.testmode", JSON.stringify({ fake: "2026-10-21", lastSeen: Date.now() })); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
       const { tw } = await weeks(page);
       await buildViaUI(page, tw);
       const before = await mealCount(page, tw);
@@ -76,10 +82,16 @@ try {
       }, tw);
       assert(!res.meals, "undo after an edit must restore NOTHING (all-or-nothing), meals came back");
       assert(res.toast && /Nothing left to undo/.test(res.toast), "expected 'Nothing left to undo' info toast: " + JSON.stringify(res));
+      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
       await page.close();
     });
     await test("r4.b8.weekclear-undo-clean-restores-all", async () => {
       const page = await freshPage(browser);
+      // Saturday pin, same reason as the blocked-undo test above.
+      await page.evaluate(() => { try { localStorage.setItem("steady.testmode", JSON.stringify({ fake: "2026-10-21", lastSeen: Date.now() })); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
       const { tw } = await weeks(page);
       await buildViaUI(page, tw);
       const before = await mealCount(page, tw);
@@ -89,6 +101,8 @@ try {
       await wait(300);
       const after = await mealCount(page, tw);
       assert(after === before, "clean undo should restore all meals: before=" + before + " after=" + after);
+      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
       await page.close();
     });
   }
