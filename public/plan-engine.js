@@ -145,13 +145,29 @@
     return { servings: servings, eatings: eatings, bumped: bumped };
   }
 
+  /* v28a item 1: protein -> breakfast ingredient items, for exclusions.
+     Only eggs and yogurt appear in breakfasts today (as the eggs item and
+     the greekyog/cottage items); other proteins map to nothing. */
+  var BK_PROTEIN_ITEMS = { eggs: ["eggs"], yogurt: ["greekyog", "cottage"] };
+  function breakfastExcluded(bkId, excl) {
+    if (!excl) return false;
+    var bk = BK[bkId];
+    if (!bk || !bk.ing) return false;
+    return bk.ing.some(function (pair) {
+      return Object.keys(excl).some(function (pid) {
+        return excl[pid] && (BK_PROTEIN_ITEMS[pid] || []).indexOf(pair[0]) >= 0;
+      });
+    });
+  }
   function breakfastPair(cells) {
     var v = cellVals(cells).bk;
     if (Array.isArray(v) && v.length === 2 && BK[v[0]] && BK[v[1]]) return v.slice();
+    if (Array.isArray(v) && v.length === 0) return [];
     return PD.BREAKFAST_DEFAULT.slice();
   }
   function breakfastDays(ctx, cells) {
     var pair = breakfastPair(cells), out = [], idx = 0;
+    if (!pair.length) return out;
     for (var d = 0; d <= 5; d++) {
       if (ctx.rest && ctx.rest[d]) continue;
       /* Bug-fix batch item 11: no breakfast is planned on a fast day. */
@@ -200,6 +216,9 @@
     var v = cellVals(cells), out = {};
     Object.keys(v).forEach(function (k) { out[k] = v[k]; });
     var P = proteinsOf(cells);
+    /* v28a item 1: Settings exclusions shrink the pool — a stale saved week
+       cannot regenerate an excluded protein, even if it is still picked. */
+    if (ctx && ctx.excl) P = P.filter(function (id) { return !ctx.excl[id]; });
     var sl = slots(ctx, cells);
     if (!P.length) return out;
     var rotation = shuffleArr(P.slice(), rand);
@@ -422,7 +441,15 @@
       }
       if (meal) { out[s.key] = { id: meal.id }; used[meal.id] = true; if (handsOn(meal) >= longMinG) longCount++; }
     });
-    if (!out.bk) out.bk = PD.BREAKFAST_DEFAULT.slice();
+    if (!out.bk) {
+      /* v28a item 1 (ruling A1): the default breakfast pair respects
+         exclusions too — filtered defaults, refilled from the remaining
+         breakfasts in order; empty when fewer than 2 remain. */
+      var bkAvail = Object.keys(BK).filter(function (id) { return !breakfastExcluded(id, ctx && ctx.excl); });
+      var bkPair = PD.BREAKFAST_DEFAULT.filter(function (id) { return bkAvail.indexOf(id) >= 0; });
+      bkAvail.forEach(function (id) { if (bkPair.length < 2 && bkPair.indexOf(id) < 0) bkPair.push(id); });
+      out.bk = bkPair.length >= 2 ? bkPair : [];
+    }
     return out;
   }
 
@@ -453,7 +480,10 @@
     Object.keys(v).forEach(function (k) { out[k] = v[k]; });
     var raw = v[key];
     if (!raw || raw.k) return out;
-    var P = proteinsOf(cells); if (!P.length) return out;
+    var P = proteinsOf(cells);
+    /* v28a item 1: same exclusion filter as generate(). */
+    if (ctx && ctx.excl) P = P.filter(function (id) { return !ctx.excl[id]; });
+    if (!P.length) return out;
     var cur = resolve(ctx, cells, key);
     var slotLetter = key.slice(-1);
     var used = {};
@@ -787,6 +817,7 @@
   root.PLAN_ENGINE = {
     slots: slots, resolve: resolve, generate: generate, shuffleOne: shuffleOne,
     cooked: cooked, breakfastDays: breakfastDays, breakfastPair: breakfastPair,
+    breakfastExcluded: breakfastExcluded,
     shopping: shopping, prep: prep, qtyText: qtyText, frac: frac, dur: dur, clock: clock,
     proteinsOf: proteinsOf, servingsOf: servingsOf, addDays: addDays, dowOf: dowOf, cellVals: cellVals,
     handsOn: handsOn, longMinOf: longMinOf,

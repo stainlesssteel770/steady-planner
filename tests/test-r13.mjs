@@ -1,6 +1,6 @@
 /* Steady BETA BATCH 4 (steady-v22) suite.
    Sections: kashrus (item 1) | mdgap (item 4) | picker (item 3) |
-             dots (item 2) | long (item 5)
+             dots (item 2) | long (item 5) | v28a (item 1 + item 5)
    Usage: node test-r13.mjs [section|all]   (WIDTH env, default 390) */
 import puppeteer from "puppeteer-core";
 
@@ -496,6 +496,241 @@ try {
       await wait(250);
       const end = await page.evaluate((tw) => planCells(tw).longMin, setup.tw);
       assert(end === 35, "one - click should store 35, got " + JSON.stringify(end));
+      await page.close();
+    });
+  }
+  if (run("v28a")) {
+    /* Batch A (v28a) item 1: custom proteins + exclusions. Helpers mirror
+       the picker section's idioms (seeded week, Thursday pin, real buttons). */
+    const click = async (page, sel) => { await page.waitForSelector(sel, { timeout: 5000 }); await page.click(sel); await wait(250); };
+    const seedPlan = async (page, cells, step) => page.evaluate((cells, step) => {
+      const tw = weekSunday(todayStr);
+      state.plans[tw] = { f: {} };
+      Object.keys(cells).forEach((k) => { state.plans[tw].f[k] = { v: cells[k], ts: 1000 }; });
+      saveLocal();
+      ui.tab = "plan"; ui.planWs = tw; ui.planStep = step || "week"; saveUi(); render(true);
+      return { tw };
+    }, cells, step);
+    const freshPinnedPage = async (browser) => {
+      const page = await freshPage(browser);
+      const fake = await page.evaluate(() => {
+        const f = addDays(weekSunday(todayStr), 4);
+        try { localStorage.setItem("steady.testmode", JSON.stringify({ fake: f, lastSeen: Date.now() })); } catch (e) {}
+        return f;
+      });
+      await page.reload({ waitUntil: "networkidle0", timeout: 90000 });
+      await page.waitForFunction(() => window.PLAN_ENGINE && window.PLAN_DATA && document.getElementById("main"));
+      await wait(350);
+      return { page, fake };
+    };
+    const assertPin = async (page, fake) => {
+      const p = await page.evaluate(() => ({
+        todayStr: todayStr, card: !!document.querySelector('.meal-card[data-k="m4L"]')
+      }));
+      assert(p.todayStr === fake, "TESTMODE pin did not take: todayStr=" + p.todayStr);
+      assert(p.card, "m4L must render as a full meal card under the Thursday pin, not a past-day stub");
+    };
+    const openViaCard = async (page, key) => {
+      await page.evaluate((k) => {
+        const card = document.querySelector('.meal-card[data-k="' + k + '"]');
+        if (!card) throw new Error("no meal card " + k);
+        card.querySelector(".meal-name, .meal-how, .slot-label").click();
+      }, key);
+      await page.waitForSelector("#mpList .mp-opt", { timeout: 5000 });
+      await wait(250);
+    };
+    const setExclViaUI = async (page, ids) => {
+      await click(page, "#gearBtn");
+      for (const id of ids) {
+        await page.evaluate((id) => { document.querySelector('#setProteinList button[data-act="set-pro"][data-id="' + id + '"]').click(); }, id);
+        await wait(150);
+      }
+      await click(page, "#setSave");
+    };
+    const getExcl = (page) => page.evaluate(() => getSetting("proteinExcl") || {});
+    const clearExcl = (page) => page.evaluate(() => { opSettings("proteinExcl", {}); });
+
+    await test("r13.v28a.settings-exclude-fish-disables-picker", async () => {
+      const page = await freshPage(browser);
+      await setExclViaUI(page, ["salmon", "tuna", "whitefish"]);
+      const excl = await getExcl(page);
+      assert(excl.salmon && excl.tuna && excl.whitefish, "settings must store all three fish exclusions, got: " + JSON.stringify(excl));
+      await seedPlan(page, {}, "pro");
+      const chips = await page.evaluate(() => {
+        const out = {};
+        ["salmon", "tuna", "whitefish", "chicken"].forEach((id) => {
+          const c = document.querySelector('.protein-chip[data-id="' + id + '"]');
+          out[id] = c ? { disabled: c.disabled, hint: (c.querySelector(".hint") || {}).textContent || "" } : null;
+        });
+        return out;
+      });
+      ["salmon", "tuna", "whitefish"].forEach((id) => {
+        assert(chips[id] && chips[id].disabled, id + " chip must be disabled when excluded");
+        assert(/excluded in Settings/.test(chips[id].hint), id + " chip must note the exclusion, hint: " + chips[id].hint);
+      });
+      assert(chips.chicken && !chips.chicken.disabled, "chicken chip must stay enabled");
+      await clearExcl(page);
+      await page.close();
+    });
+
+    await test("r13.v28a.nofish-shortcut", async () => {
+      const page = await freshPage(browser);
+      await click(page, "#gearBtn");
+      await page.evaluate(() => { document.querySelector('button[data-act="set-nofish"]').click(); });
+      await wait(200);
+      await click(page, "#setSave");
+      const excl = await getExcl(page);
+      assert(excl.salmon && excl.tuna && excl.whitefish, "No fish must exclude all three fish, got: " + JSON.stringify(excl));
+      await click(page, "#gearBtn");
+      await page.evaluate(() => { document.querySelector('button[data-act="set-nofish"]').click(); });
+      await wait(200);
+      await click(page, "#setSave");
+      const excl2 = await getExcl(page);
+      assert(!excl2.salmon && !excl2.tuna && !excl2.whitefish, "No fish again must clear all three fish, got: " + JSON.stringify(excl2));
+      await page.close();
+    });
+
+    await test("r13.v28a.guard-min-two", async () => {
+      const page = await freshPage(browser);
+      await page.evaluate(() => {
+        const all = ["chicken", "gbeef", "gturkey", "schnitzel", "stew", "deli", "salmon", "tuna", "whitefish", "eggs", "yogurt"];
+        const e = {}; all.forEach((id) => { e[id] = true; });
+        opSettings("proteinExcl", e);
+      });
+      await wait(250);
+      await click(page, "#gearBtn");
+      await page.evaluate(() => { document.querySelector('#setProteinList button[data-act="set-pro"][data-id="tofu"]').click(); });
+      await wait(250);
+      const msg = await page.evaluate(() => (document.getElementById("setProteinMsg") || {}).textContent || "");
+      assert(/at least 2/.test(msg), "guard message must show when a toggle would leave fewer than 2, got: " + msg);
+      await page.evaluate(() => { const d = document.getElementById("settingsDlg"); if (d && d.open) d.close(); });
+      const after = await getExcl(page);
+      assert(!after.tofu && Object.keys(after).length === 11, "guard must refuse the 12th exclusion, got: " + JSON.stringify(after));
+      await clearExcl(page);
+      await page.close();
+    });
+
+    await test("r13.v28a.generate-excludes-fish", async () => {
+      const page = await freshPage(browser);
+      await setExclViaUI(page, ["salmon", "tuna", "whitefish"]);
+      await seedPlan(page, {}, "pro");
+      await page.evaluate(() => { ["chicken", "yogurt"].forEach((id) => { document.querySelector('.protein-chip[data-id="' + id + '"]').click(); }); });
+      await wait(250);
+      await page.evaluate(() => { document.querySelector('button[data-act="build"]').click(); });
+      await wait(500);
+      const res = await page.evaluate(() => {
+        const tw = weekSunday(todayStr);
+        const cells = planCells(tw);
+        const ctx = planCtx(tw);
+        const mealIds = Object.keys(cells).filter((k) => /^m\d[LD]$/.test(k)).map((k) => cells[k] && cells[k].id).filter(Boolean);
+        const tags = mealIds.map((id) => PLAN_DATA.MEALS[id] ? PLAN_DATA.MEALS[id].t : "?");
+        const shop = ENGINE.shopping(ctx, cells);
+        const shopIds = [];
+        shop.sections.forEach((s) => s.lines.forEach((l) => shopIds.push(l.id)));
+        return { mealTags: tags, shopIds: shopIds };
+      });
+      assert(!res.mealTags.includes("F"), "generated meals must have no fish, got: " + res.mealTags.join(","));
+      ["salmon", "tunacan", "whitefish"].forEach((id) => assert(!res.shopIds.includes(id), "shopping must not list " + id));
+      await clearExcl(page);
+      await page.close();
+    });
+
+    await test("r13.v28a.replace-picker-excludes", async () => {
+      const { page, fake } = await freshPinnedPage(browser);
+      await setExclViaUI(page, ["salmon"]);
+      await seedPlan(page, { pro: ["chicken", "salmon"], m4L: { id: "c3" }, m4D: { id: "y3" } }, "week");
+      await assertPin(page, fake);
+      await openViaCard(page, "m4L");
+      const ids = await page.evaluate(() => Array.from(document.querySelectorAll("#mpList .mp-opt[data-id]")).map((el) => {
+        const id = el.getAttribute("data-id");
+        const m = PLAN_DATA.MEALS[id];
+        return { id: id, p: m ? m.p : null };
+      }));
+      const fishIds = ids.filter((x) => x.p === "salmon").map((x) => x.id);
+      assert(fishIds.length === 0, "picker must not list salmon meals when salmon excluded, got: " + fishIds.join(","));
+      assert(ids.length > 0, "picker should still list non-excluded meals");
+      await clearExcl(page);
+      await page.close();
+    });
+
+    await test("r13.v28a.shuffle-one-excludes", async () => {
+      const { page, fake } = await freshPinnedPage(browser);
+      await setExclViaUI(page, ["salmon"]);
+      await seedPlan(page, { pro: ["chicken", "salmon"], m4D: { id: "sa1" } }, "week");
+      await assertPin(page, fake);
+      await page.evaluate(() => { document.querySelector('.meal-card[data-k="m4D"] button[data-act="shuffle-one"]').click(); });
+      await wait(500);
+      const res = await page.evaluate(() => {
+        const tw = weekSunday(todayStr);
+        const id = planCells(tw).m4D && planCells(tw).m4D.id;
+        return { id: id, p: id && PLAN_DATA.MEALS[id] ? PLAN_DATA.MEALS[id].p : null };
+      });
+      assert(res.id && res.id !== "sa1", "shuffle must replace the salmon dinner, got: " + JSON.stringify(res));
+      assert(res.p !== "salmon", "shuffled dinner must not be salmon, got: " + JSON.stringify(res));
+      await clearExcl(page);
+      await page.close();
+    });
+
+    await test("r13.v28a.breakfast-exclusions", async () => {
+      const page = await freshPage(browser);
+      await setExclViaUI(page, ["eggs"]);
+      await seedPlan(page, {}, "week");
+      for (let i = 0; i < 5; i++) {
+        await page.evaluate(() => { document.querySelector('button[data-act="bk-shuffle"]').click(); });
+        await wait(200);
+        const bk = await page.evaluate(() => planCells(weekSunday(todayStr)).bk);
+        assert(bk && !bk.some((id) => ["bk1", "bk5", "bk6"].includes(id)), "shuffled breakfasts must exclude eggs, got: " + JSON.stringify(bk));
+      }
+      await seedPlan(page, {}, "pro");
+      await page.evaluate(() => { ["chicken", "yogurt"].forEach((id) => { document.querySelector('.protein-chip[data-id="' + id + '"]').click(); }); });
+      await wait(250);
+      await page.evaluate(() => { document.querySelector('button[data-act="build"]').click(); });
+      await wait(500);
+      const bk2 = await page.evaluate(() => planCells(weekSunday(todayStr)).bk);
+      assert(bk2 && !bk2.some((id) => ["bk1", "bk5", "bk6"].includes(id)), "generated week breakfasts must exclude eggs, got: " + JSON.stringify(bk2));
+      await clearExcl(page);
+      await page.close();
+    });
+
+    await test("r13.v28a.kashrus-still-blocked", async () => {
+      const { page, fake } = await freshPinnedPage(browser);
+      await setExclViaUI(page, ["salmon"]);
+      await seedPlan(page, { pro: ["chicken", "yogurt"], m4D: { id: "y3" }, m4L: { id: "y1" } }, "week");
+      await assertPin(page, fake);
+      await openViaCard(page, "m4L");
+      const pk = await page.evaluate(() => {
+        const rows = Array.from(document.querySelectorAll("#mpList .mp-opt[data-id]"));
+        return {
+          normalTags: rows.filter((e) => !e.classList.contains("mp-opt-blocked")).map((e) => PLAN_DATA.MEALS[e.getAttribute("data-id")].t),
+          blocked: rows.filter((e) => e.classList.contains("mp-opt-blocked")).map((e) => e.getAttribute("data-id")),
+          hint: (document.querySelector("#mpList .mp-hint") || {}).textContent || ""
+        };
+      });
+      assert(pk.normalTags.every((t) => t !== "M"), "normal list must not contain meat under a dairy dinner, even with exclusions active");
+      assert(pk.blocked.length >= 3, "meat lunches should still be in the override section, got: " + pk.blocked.join(","));
+      assert(/Not usually allowed/.test(pk.hint), "override section must still be explained: " + pk.hint);
+      await clearExcl(page);
+      await page.close();
+    });
+
+    await test("r13.v28a.old-backup-loads", async () => {
+      const page = await freshPage(browser);
+      const dialogs = [];
+      page.on("dialog", async (d) => { dialogs.push(d.message()); await d.accept().catch(() => {}); });
+      const tw = await page.evaluate(() => weekSunday(todayStr));
+      const fs = await import("fs");
+      fs.writeFileSync("/tmp/testbed/v28a-old-backup.json", JSON.stringify({ settings: { f: {} }, favorites: { items: {} }, days: {},
+        grocery: { f: {} }, plans: { [tw]: { f: { pro: { v: ["chicken", "yogurt"], ts: 111 }, m4D: { v: { id: "y3" }, ts: 112 } } } } }));
+      const input = await page.$("#restoreInput");
+      await input.uploadFile("/tmp/testbed/v28a-old-backup.json");
+      await page.waitForFunction(() => false, { timeout: 1 }).catch(() => {});
+      for (let i = 0; i < 30 && dialogs.length < 2; i++) await wait(150);
+      assert(dialogs.length >= 2, "expected confirm + alert dialogs, got " + JSON.stringify(dialogs));
+      const alertMsg = dialogs[dialogs.length - 1];
+      assert(!/bad value/.test(alertMsg), "alert should report 0 bad values, got: " + alertMsg);
+      await wait(500);
+      const excl = await page.evaluate(() => getSetting("proteinExcl"));
+      assert(excl && typeof excl === "object" && Object.keys(excl).length === 0, "old backup must load with exclusions empty, got: " + JSON.stringify(excl));
       await page.close();
     });
   }

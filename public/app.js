@@ -164,11 +164,11 @@ function planCtx(week) {
     if (NINEDAYS[dt4]) nine[d4] = true;
     if (YOMTOV[addDays(dt4, 1)] === "Yom Kippur") erevYK[d4] = true;
   }
-  return { week: week, today: todayStr, rest: rest, pre: pre, yomtov: yt, fast: fast, tisha: tisha, nine: nine, erevYK: erevYK };
+  return { week: week, today: todayStr, rest: rest, pre: pre, yomtov: yt, fast: fast, tisha: tisha, nine: nine, erevYK: erevYK, excl: getSetting("proteinExcl") || {} };
 }
 
 /* ---------------- settings ---------------- */
-var SETTING_DEFAULTS = { stepGoal: 7500, workoutTarget: 3, workoutLevel: 0, workoutRounds: 3, prepDay: 0 };
+var SETTING_DEFAULTS = { stepGoal: 7500, workoutTarget: 3, workoutLevel: 0, workoutRounds: 3, prepDay: 0, proteinExcl: {} };
 function getSetting(name) {
   var c = state.settings && state.settings.f ? state.settings.f[name] : null;
   return c && c.v !== null && c.v !== undefined ? c.v : SETTING_DEFAULTS[name];
@@ -1198,6 +1198,9 @@ function renderPlan() {
   var cells = planCells(week), ctx = planCtx(week);
   var step = ui.planStep || planStepDefault(week);
   var pros = ENGINE.proteinsOf(cells);
+  /* v28a item 1: effective picks = picked minus Settings exclusions. */
+  var protExcl = getSetting("proteinExcl") || {};
+  var effPros = pros.filter(function (id) { return !protExcl[id]; });
   var h = '<section class="card"><div class="row spread plan-head"><div><h2 style="margin:0">Meal plan</h2>' +
     '<div class="muted small">' + shortDate(week) + ' – ' + shortDate(addDays(week, 5)) + ' · Sunday to Friday</div></div>' +
     '<div class="week-toggle seg"><button data-act="plan-week" data-w="' + tw + '" class="' + (week === tw ? "on" : "") + '" aria-pressed="' + (week === tw) + '">This week</button>' +
@@ -1214,7 +1217,7 @@ function renderPlan() {
   prepR.midweek.tasks.forEach(function (t) { prepTickIds.push("t_" + t.tick); });
   prepR.midweek.thaws.forEach(function (t) { prepTickIds.push("t_" + t.tick); });
   var stepDone = {
-    pro: pros.length >= 2,
+    pro: effPros.length >= 2,
     week: planHasMeals(week),
     shop: totalLines > 0 && tickedLines >= totalLines,
     prep: prepTickIds.length > 0 && prepTickIds.every(function (t) { return cells[t]; })
@@ -1248,6 +1251,8 @@ function cookingForHTML(cells) {
 }
 function planProHTML(week, cells, ctx, pros) {
   var h = cookingForHTML(cells);
+  var protExcl = getSetting("proteinExcl") || {};
+  var effPros = pros.filter(function (id) { return !protExcl[id]; });
   var lcP = readLastCleared(week);
   if (lcP && lcP.week === week && !planHasMeals(week)) {
     h += '<section class="card"><p class="muted small" style="margin-top:0">Week of ' + shortDate(week) + ' · cleared ' + esc(clearedWhenText(lcP.at)) + '</p>' +
@@ -1258,11 +1263,15 @@ function planProHTML(week, cells, ctx, pros) {
   h += '<section class="card"><h3>Pick ' + (week > weekSunday(todayStr) ? "next" : "this") + ' week\'s proteins</h3><div class="pgrid">';
   PD.PROTEINS.forEach(function (p) {
     var picked = pros.indexOf(p[0]) >= 0;
-    var dis = !picked && pros.length >= 4;
+    var excluded = !!protExcl[p[0]];
+    /* v28a item 1: excluded proteins cannot be picked (disabled, noted).
+       One already picked stays removable — the click handler only refuses
+       ADDING an excluded protein. The 4-max counts effective picks. */
+    var dis = (excluded && !picked) || (!picked && effPros.length >= 4);
     h += '<button class="chip protein-chip' + (picked ? " on" : "") + '" data-act="pro" data-id="' + p[0] + '"' + (dis ? " disabled" : "") + ' aria-pressed="' + picked + '">' +
-      '<span>' + tagPill(p[2]) + ' <b>' + esc(p[1]) + '</b></span><span class="hint">' + esc(p[3]) + '</span></button>';
+      '<span>' + tagPill(p[2]) + ' <b>' + esc(p[1]) + '</b></span><span class="hint">' + esc(p[3]) + (excluded ? " · excluded in Settings" : "") + '</span></button>';
   });
-  h += '</div><p class="muted">' + pros.length + ' picked · ' + (pros.length >= 4 ? "that\'s the max" : pros.length >= 2 ? "ready when you are" : "pick at least 2") + '</p>';
+  h += '</div><p class="muted">' + effPros.length + ' picked · ' + (effPros.length >= 4 ? "that\'s the max" : effPros.length >= 2 ? "ready when you are" : "pick at least 2") + '</p>';
   var toggles = [
     ["on5L", "Friday lunch", cells.on5L !== false],
     ["on5D", "Friday night dinner", cells.on5D === true],
@@ -1278,7 +1287,7 @@ function planProHTML(week, cells, ctx, pros) {
   h += '<p class="muted small">Sunday–Friday lunches and Sunday–Thursday dinners. Shabbos and Yom Tov aren\'t planned' +
     (skipNames.length ? ', so this week skips ' + esc(skipNames.join(", ")) + '.' : '.') + '</p>';
   var built = planHasMeals(week);
-  h += '<button class="btn primary big" data-act="build"' + (pros.length < 2 || pros.length > 4 ? " disabled" : "") + '>' + (built ? "Rebuild the week (locked meals stay)" : "Build my week") + '</button>';
+  h += '<button class="btn primary big" data-act="build"' + (effPros.length < 2 || effPros.length > 4 ? " disabled" : "") + '>' + (built ? "Rebuild the week (locked meals stay)" : "Build my week") + '</button>';
   if (built) h += '<p style="text-align:center"><button class="link-btn" data-act="plan-step" data-s="week">See this week\'s plan</button></p>';
   h += '</section>';
   return h;
@@ -1319,6 +1328,9 @@ function planWeekHTML(week, cells, ctx) {
     var bk = PD.BK[pair[pi]];
     if (bk) h += '<p><b>' + esc(days.join(" · ")) + '</b> — ' + tagPill(bk.t) + ' ' + esc(bk.n) + '</p>';
   });
+  /* v28a item 1: a week with no available breakfasts (exclusions emptied
+     the pair) says so instead of showing a blank section. */
+  if (!pair.length) h += '<p class="muted small">No breakfasts match your protein exclusions — adjust them in Settings.</p>';
   h += '</section>';
   var slotKeys = {};
   ENGINE.slots(ctx, cells).forEach(function (s) { slotKeys[s.key] = true; });
@@ -1760,6 +1772,7 @@ function openMealPicker(key) {
   mpKey = key;
   var dow = +m[1], slot = m[2];
   var pros = ENGINE.proteinsOf(cells);
+  var mpExcl = getSetting("proteinExcl") || {};
   var mdGapP = cells.mdGap === true;
   var other = ENGINE.resolve(ctx, cells, "m" + dow + (slot === "L" ? "D" : "L"));
   var otherTag = other && other.meal ? other.meal.t : null;
@@ -1780,6 +1793,10 @@ function openMealPicker(key) {
   }
   var blockedList = [];
   var list = Object.keys(PD.MEALS).map(function (id) { return PD.MEALS[id]; }).filter(function (meal) {
+    /* v28a item 1: excluded proteins never appear — not even in the
+       "Not usually allowed" section (that section is for kashrus, not
+       for proteins the user does not eat). */
+    if (mpExcl[meal.p]) return false;
     if (pros.indexOf(meal.p) < 0) return false;
     if (meal.s.indexOf(slot) < 0) return false;
     if (!mdGapP && pickerBlocked(meal.t, slot, otherTag)) { blockedList.push(meal); return false; }
@@ -2072,7 +2089,15 @@ document.addEventListener("click", function (ev) {
   if (act === "pro") {
     var week = currentPlanWeek(), cells = planCells(week), id = el.getAttribute("data-id");
     var pros = ENGINE.proteinsOf(cells), ix = pros.indexOf(id);
-    if (ix >= 0) pros.splice(ix, 1); else if (pros.length < 4) pros.push(id);
+    var pExcl = getSetting("proteinExcl") || {};
+    /* v28a item 1: an excluded protein cannot be ADDED (its chip is
+       disabled); one already picked can still be REMOVED. The 4-max counts
+       effective picks. */
+    if (ix >= 0) pros.splice(ix, 1);
+    else if (!pExcl[id]) {
+      var eff = pros.filter(function (x) { return !pExcl[x]; });
+      if (eff.length < 4) pros.push(id);
+    }
     opPlan(week, "pro", pros);
     return;
   }
@@ -2080,6 +2105,34 @@ document.addEventListener("click", function (ev) {
     var week2 = currentPlanWeek(), cells2 = planCells(week2), k = el.getAttribute("data-k");
     var cur = (k === "on5D" || k === "mdGap") ? cells2[k] === true : cells2[k] !== false;
     opPlan(week2, k, !cur);
+    return;
+  }
+  /* v28a item 1: staged protein toggles (saved by the dialog's Save). */
+  if (act === "set-pro") {
+    if (!setProteinStaged) setProteinStaged = Object.assign({}, getSetting("proteinExcl") || {});
+    var pid = el.getAttribute("data-id");
+    if (setProteinStaged[pid]) delete setProteinStaged[pid];
+    else {
+      var availAfter = PD.PROTEINS.filter(function (p) { return p[0] !== pid && !setProteinStaged[p[0]]; }).length;
+      if (availAfter < 2) { setProteinWarn = "Keep at least 2 proteins available — that exclusion was not applied."; renderSetProteins(); return; }
+      setProteinStaged[pid] = true;
+    }
+    setProteinWarn = "";
+    renderSetProteins();
+    return;
+  }
+  if (act === "set-nofish") {
+    if (!setProteinStaged) setProteinStaged = Object.assign({}, getSetting("proteinExcl") || {});
+    var fishIds = ["salmon", "tuna", "whitefish"];
+    var allOut = fishIds.every(function (id) { return setProteinStaged[id]; });
+    if (allOut) fishIds.forEach(function (id) { delete setProteinStaged[id]; });
+    else {
+      var availAfterFish = PD.PROTEINS.filter(function (p) { return fishIds.indexOf(p[0]) < 0 && !setProteinStaged[p[0]]; }).length;
+      if (availAfterFish < 2) { setProteinWarn = "Keep at least 2 proteins available — that exclusion was not applied."; renderSetProteins(); return; }
+      fishIds.forEach(function (id) { setProteinStaged[id] = true; });
+    }
+    setProteinWarn = "";
+    renderSetProteins();
     return;
   }
   if (act === "srv") {
@@ -2236,7 +2289,11 @@ document.addEventListener("click", function (ev) {
     return;
   }
   if (act === "bk-shuffle") {
-    var week6 = currentPlanWeek(), ids = Object.keys(PD.BK);
+    var week6 = currentPlanWeek();
+    /* v28a item 1 (ruling A1): never shuffle into an excluded breakfast. */
+    var bkExcl = getSetting("proteinExcl") || {};
+    var ids = Object.keys(PD.BK).filter(function (id) { return !ENGINE.breakfastExcluded(id, bkExcl); });
+    if (ids.length < 2) { showInfoToast("No breakfasts left with your current protein exclusions — adjust them in Settings."); return; }
     var a = ids[Math.floor(Math.random() * ids.length)], b = a;
     while (b === a) b = ids[Math.floor(Math.random() * ids.length)];
     opPlan(week6, "bk", [a, b]);
@@ -2356,6 +2413,26 @@ document.addEventListener("keydown", function (ev) {
 });
 
 /* ---------------- settings dialog (1.8) ---------------- */
+/* v28a item 1: staged protein exclusions (saved by the dialog's Save). */
+var setProteinStaged = null;
+var setProteinWarn = "";
+function renderSetProteins() {
+  var listEl = document.getElementById("setProteinList");
+  if (!listEl) return;
+  var staged = setProteinStaged || {};
+  var avail = PD.PROTEINS.filter(function (p) { return !staged[p[0]]; }).length;
+  var fishIds = ["salmon", "tuna", "whitefish"];
+  var fishAll = fishIds.every(function (id) { return staged[id]; });
+  var h = '<button type="button" class="btn" data-act="set-nofish">' + (fishAll ? "Include fish again" : "No fish") + '</button>';
+  PD.PROTEINS.forEach(function (p) {
+    var eats = !staged[p[0]];
+    h += '<div class="toggle-row"><div><b>' + esc(p[1]) + '</b></div>' +
+      '<button type="button" class="switch' + (eats ? " on" : "") + '" data-act="set-pro" data-id="' + p[0] + '" role="switch" aria-checked="' + eats + '" aria-label="' + esc(p[1]) + '"></button></div>';
+  });
+  listEl.innerHTML = h;
+  var msgEl = document.getElementById("setProteinMsg");
+  if (msgEl) msgEl.textContent = setProteinWarn || (avail + " of " + PD.PROTEINS.length + " proteins · exclusions apply to new plans and re-picks");
+}
 function openSettings() {
   var dlg = document.getElementById("settingsDlg");
   var se0 = document.getElementById("setError");
@@ -2366,6 +2443,9 @@ function openSettings() {
   document.getElementById("setWaterUnit").value = waterUnit();
   document.getElementById("setCoffeeOn").checked = !!getSetting("coffeeOn");
   document.getElementById("setAlcoholOn").checked = !!getSetting("alcoholOn");
+  setProteinStaged = Object.assign({}, getSetting("proteinExcl") || {});
+  setProteinWarn = "";
+  renderSetProteins();
   var rn = restName(selDate), ov = getDayF(selDate, "restOverride");
   document.getElementById("setRestLabel").textContent = "Rest day for " + longDate(selDate) + ": " + (rn || "Normal day");
   var ctl = "";
@@ -2411,6 +2491,14 @@ document.getElementById("setSave").addEventListener("click", function (ev) {
   if (wuRaw !== waterUnit()) opSettings("waterUnit", wuRaw);
   if (cfChecked !== !!getSetting("coffeeOn")) opSettings("coffeeOn", cfChecked);
   if (alChecked !== !!getSetting("alcoholOn")) opSettings("alcoholOn", alChecked);
+  /* v28a item 1: staged protein exclusions save with the dialog (guard
+     re-checked here; the toggles already refuse invalid states). */
+  if (setProteinStaged) {
+    var stagedAvail = PD.PROTEINS.filter(function (p) { return !setProteinStaged[p[0]]; }).length;
+    if (stagedAvail < 2) { setErr("Keep at least 2 proteins available.", "setProteinList"); if (ev) ev.preventDefault(); return; }
+    var curExcl = getSetting("proteinExcl") || {};
+    if (JSON.stringify(setProteinStaged) !== JSON.stringify(curExcl)) opSettings("proteinExcl", setProteinStaged);
+  }
 });
 
 
@@ -2483,6 +2571,20 @@ function sanitizeBackup(parsed) {
       if (typeof c.v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(c.v)) return c;
       if (c.v === null) return c;
       fixed++; return null;
+    }
+    /* v28a item 1: exclusions survive backup restore — keep only true
+       values keyed by real protein ids (false values just mean "eats it"). */
+    if (name === "proteinExcl") {
+      if (!sbIsObj(c.v)) { fixed++; return null; }
+      var kept = {};
+      Object.keys(c.v).forEach(function (pid) {
+        if (c.v[pid] === true) {
+          if (PD.PROTEINS.some(function (p) { return p[0] === pid; })) kept[pid] = true;
+          else fixed++;
+        }
+      });
+      c.v = kept;
+      return c;
     }
     fixed++; return null;
   }
