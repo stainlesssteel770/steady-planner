@@ -1,6 +1,6 @@
-/* Steady service worker: offline app shell. Cache: steady-v27a.
+/* Steady service worker: offline app shell. Cache: steady-v27b.
    All paths are relative so the app works under a subpath (e.g. GitHub Pages project site). */
-var CACHE = "steady-v27a";
+var CACHE = "steady-v27b";
 var SHELL = [
   "./",
   "styles.css",
