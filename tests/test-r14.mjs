@@ -1192,6 +1192,8 @@ try {
       assert(s.card && s.q === "Protein at breakfast?", "after the last question the loop must return to skipped Q1, got " + JSON.stringify(s));
       // Answer looped Q1: completed state.
       await click(page, '[data-act="checkin-yes"]');
+      // v27b5: the flow's last step is the optional note — skip it to reach the checklist.
+      await click(page, '[data-act="checkin-note-skip"]');
       s = await flowState(page);
       assert(!s.card && s.habits, "after the loop the checklist should show, got " + JSON.stringify(s));
       assert(s.checkinBtn && s.forwardBtn, "completed today needs Check-in + Forward buttons");
@@ -1225,6 +1227,8 @@ try {
       let s = await flowState(page);
       assert(s.card && s.q === "In bed by midnight?", "loop should return to skipped bed question, got " + JSON.stringify(s));
       await click(page, '[data-act="checkin-skip"]');
+      // v27b5: the flow's last step is the optional note — skip it to reach the checklist.
+      await click(page, '[data-act="checkin-note-skip"]');
       s = await flowState(page);
       assert(!s.card && s.habits, "after the second skip the checklist should show");
       const sc = await page.evaluate(() => { const r = scoreDay("2026-10-21"); return { score: r.score, of: r.of, bed: getDayF("2026-10-21", "bed") }; });
@@ -1393,6 +1397,8 @@ try {
       await page.evaluate(() => { opSettings("alcoholOn", true); });
       await resetDay(page, "2026-10-21");
       for (let i = 0; i < 12; i++) await click(page, '[data-act="checkin-yes"]');
+      // v27b5: the flow's last step is the optional note — skip it to reach the done card.
+      await click(page, '[data-act="checkin-note-skip"]');
       const res = await page.evaluate(() => ({
         oldTick: !!document.querySelector('[data-act="tick"][data-f="seconds"]'),
         oldTitle: !!Array.from(document.querySelectorAll("section.card b")).find((b) => b.textContent.trim() === "Had seconds"),
@@ -2074,6 +2080,131 @@ try {
       assert(r.week === "Week of Oct 11" && r.score === "Score: 45 of 50" && r.nextDisabled === true,
         "next should return to the just-ended week, got " + JSON.stringify(r));
       await resetWeek(page);
+      await clearFake(page);
+    });
+  }
+
+  /* ============ v27b item 5: one-line day note ============ */
+  if (run("v27b5")) {
+    const setFake = async (page, fake) => {
+      await page.evaluate((f) => { try { localStorage.setItem("steady.testmode", JSON.stringify({ fake: f, lastSeen: Date.now() })); } catch (e) {} }, fake);
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
+    };
+    const clearFake = async (page) => {
+      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.close();
+    };
+    const click = async (page, sel) => { await page.evaluate((s) => document.querySelector(s).click(), sel); await wait(350); };
+    const resetDay = async (page, date) => {
+      await page.evaluate((date) => {
+        state.days[date] = { f: {} }; saveLocal();
+        try { delete ui.checkin; } catch (e) {}
+        ui.tab = "today"; saveUi(); render(true);
+      }, date);
+    };
+    const noteCard = (page) => page.evaluate(() => {
+      const inp = document.querySelector("#checkinNote");
+      return {
+        input: !!inp, max: inp ? inp.getAttribute("maxlength") : null,
+        save: !!document.querySelector('[data-act="checkin-note-save"]'),
+        skip: !!document.querySelector('[data-act="checkin-note-skip"]')
+      };
+    });
+
+    await test("r14.v27b5.flow-note-save-and-show", async () => {
+      const page = await freshPage(browser);
+      await setFake(page, "2026-10-21");
+      await page.evaluate(() => { opSettings("alcoholOn", false); });
+      await resetDay(page, "2026-10-21");
+      for (let i = 0; i < 11; i++) await click(page, '[data-act="checkin-yes"]');
+      const card = await noteCard(page);
+      assert(card.input && card.max === "140" && card.save && card.skip,
+        "after the last question the flow should offer a note step, got " + JSON.stringify(card));
+      await page.evaluate(() => { document.getElementById("checkinNote").value = "Felt strong today"; });
+      await click(page, '[data-act="checkin-note-save"]');
+      const got = await page.evaluate(() => ({
+        note: getDayF("2026-10-21", "note"),
+        done: !!document.querySelector(".checkin-done"),
+        section: (() => { const el = document.querySelector(".day-note-text"); return el ? el.textContent.trim() : null; })()
+      }));
+      assert(got.note === "Felt strong today", "saved note should persist, got " + JSON.stringify(got));
+      assert(got.done, "flow should complete after saving the note, got " + JSON.stringify(got));
+      assert(got.section === "Felt strong today", "the day view should show the note, got " + JSON.stringify(got));
+      await resetDay(page, "2026-10-21");
+      await clearFake(page);
+    });
+
+    await test("r14.v27b5.flow-note-skip", async () => {
+      const page = await freshPage(browser);
+      await setFake(page, "2026-10-21");
+      await page.evaluate(() => { opSettings("alcoholOn", false); });
+      await resetDay(page, "2026-10-21");
+      for (let i = 0; i < 11; i++) await click(page, '[data-act="checkin-yes"]');
+      const card = await noteCard(page);
+      assert(card.input, "note step should appear before skip, got " + JSON.stringify(card));
+      await click(page, '[data-act="checkin-note-skip"]');
+      const got = await page.evaluate(() => ({
+        note: getDayF("2026-10-21", "note"),
+        done: !!document.querySelector(".checkin-done")
+      }));
+      assert(got.note === undefined || got.note === null || got.note === "",
+        "skipping must not store a note, got " + JSON.stringify(got));
+      assert(got.done, "flow should complete after skipping the note, got " + JSON.stringify(got));
+      await resetDay(page, "2026-10-21");
+      await clearFake(page);
+    });
+
+    await test("r14.v27b5.note-edit-on-past-day-and-cap", async () => {
+      const page = await freshPage(browser);
+      await setFake(page, "2026-10-21");
+      await page.evaluate(() => {
+        state.days["2026-10-20"] = { f: { note: { v: "Old note", ts: 1 } } };
+        saveLocal(); ui.tab = "today"; saveUi(); render(true);
+      });
+      await click(page, '[data-act="day-prev"]');
+      let sec = await page.evaluate(() => {
+        const el = document.querySelector(".day-note-text");
+        return { text: el ? el.textContent.trim() : null, edit: !!document.querySelector('[data-act="note-edit"]') };
+      });
+      assert(sec.text === "Old note" && sec.edit, "past day should show its note with Edit, got " + JSON.stringify(sec));
+      await click(page, '[data-act="note-edit"]');
+      const pre = await page.evaluate(() => {
+        const inp = document.querySelector("#dayNoteInput");
+        return inp ? inp.value : null;
+      });
+      assert(pre === "Old note", "edit should prefill the existing note, got " + JSON.stringify(pre));
+      const long = "x".repeat(200);
+      await page.evaluate((v) => { document.getElementById("dayNoteInput").value = v; }, long);
+      await click(page, '[data-act="note-save"]');
+      const got = await page.evaluate(() => ({
+        note: getDayF("2026-10-20", "note"),
+        text: (() => { const el = document.querySelector(".day-note-text"); return el ? el.textContent.trim() : null; })()
+      }));
+      assert(typeof got.note === "string" && got.note.length === 140 && got.note === long.slice(0, 140),
+        "saved note must be capped at 140 chars, got length " + (got.note && got.note.length));
+      assert(got.text === long.slice(0, 140), "day view should show the capped note, got " + JSON.stringify(got.text && got.text.length));
+      await resetDay(page, "2026-10-20");
+      await resetDay(page, "2026-10-21");
+      await clearFake(page);
+    });
+
+    await test("r14.v27b5.review-shows-note", async () => {
+      const page = await freshPage(browser);
+      await setFake(page, "2026-10-21");
+      await page.evaluate(() => {
+        opSettings("alcoholOn", false);
+        state.days["2026-10-14"] = { f: { note: { v: "Leg day", ts: 1 } } };
+        saveLocal(); render(true);
+      });
+      await click(page, '[data-tab="review"]');
+      const line = await page.evaluate(() => {
+        const lines = Array.from(document.querySelectorAll(".review-day")).map((d) => d.textContent.trim());
+        return lines.find((l) => l.includes("Oct 14")) || null;
+      });
+      assert(line && line.includes("Leg day"), "review line for Oct 14 should carry its note, got " + JSON.stringify(line));
+      await resetDay(page, "2026-10-14");
       await clearFake(page);
     });
   }

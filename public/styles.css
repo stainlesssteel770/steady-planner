@@ -379,3 +379,7 @@ dialog::backdrop { background: rgba(0,0,0,0.45); }
 .review-week { font-weight: 700; }
 .review-figures > div { margin: 6px 0; }
 .review-day { margin: 2px 0; color: var(--muted); }
+
+/* v27b item 5: day-note inputs and text. */
+#checkinNote, #dayNoteInput { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); margin: 4px 0 10px; }
+.day-note-text { margin: 4px 0 8px; }

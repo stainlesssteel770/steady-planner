@@ -465,21 +465,26 @@ function checkinAdvance(wasSkip) {
   if (c.qi >= c.queue.length) {
     if (c.pass === 1 && c.skipped.length) { c.queue = c.skipped.slice(); c.qi = 0; c.pass = 2; c.skipped = []; }
     else {
-      opDaySilent(date, "flowDone", true, { silent: true });
+      /* v27b item 5: the note step closes the flow's LAST day only. A chain
+         day with a later unanswered day advances without a prompt (its note
+         stays editable on the day view); the last day pauses here until the
+         note is saved or skipped. */
+      var advanced = false, nextDay = null;
       if (c.chain) {
-        var advanced = false;
         var idx = c.chain.indexOf(date);
         for (var k = idx + 1; k < c.chain.length; k++) {
           var nx = c.chain[k], nqs = checkinQuestions(nx), first = firstUnanswered(nx, nqs);
-          if (first >= 0) {
-            selDate = nx;
-            ui.checkin = { date: nx, chain: c.chain, queue: nqs.map(function (_, i) { return i; }), qi: first, pass: 1, skipped: [], done: false };
-            advanced = true;
-            break;
-          }
+          if (first >= 0) { nextDay = { date: nx, nqs: nqs, qi: first }; advanced = true; break; }
           opDaySilent(nx, "flowDone", true, { silent: true });
         }
-        if (!advanced) { c.done = true; saveUi(); selDate = todayStr; }
+      }
+      if (!advanced && !c.noteStep) { c.noteStep = true; saveUi(); render(true); return; }
+      opDaySilent(date, "flowDone", true, { silent: true });
+      if (c.chain) {
+        if (advanced) {
+          selDate = nextDay.date;
+          ui.checkin = { date: nextDay.date, chain: c.chain, queue: nextDay.nqs.map(function (_, i) { return i; }), qi: nextDay.qi, pass: 1, skipped: [], done: false };
+        } else { c.done = true; saveUi(); selDate = todayStr; }
       } else { c.done = true; saveUi(); }
     }
   }
@@ -542,7 +547,7 @@ function reviewWeekStats(sun) {
     var w = getDayF(d, "water");
     if (typeof w === "number" && w >= waterGoal()) waterHit++;
     keys.forEach(function (k) { if (s.items[k] !== null) { appl[k]++; if (!s.items[k]) missed[k]++; } });
-    days.push({ date: d, rest: false, score: s.score, of: s.of });
+    days.push({ date: d, rest: false, score: s.score, of: s.of, note: getDayF(d, "note") || null });
   }
   var best = null, bestMissed = 0;
   keys.forEach(function (k) { if (missed[k] > bestMissed) { bestMissed = missed[k]; best = k; } });
@@ -563,7 +568,7 @@ function renderReview() {
     '<div class="review-missed">Most missed: ' + (st.best ? st.labels[st.best] + ' (' + st.bestMissed + ' of ' + st.bestAppl + ' days)' : 'none') + '</div></div>' +
     '<div class="review-days">';
   st.days.forEach(function (dy) {
-    h += '<div class="review-day">' + DOW3[dowOf(dy.date)] + ' ' + shortDate(dy.date) + ' · ' + (dy.rest ? 'rest' : dy.score + '/' + dy.of) + '</div>';
+    h += '<div class="review-day">' + DOW3[dowOf(dy.date)] + ' ' + shortDate(dy.date) + ' · ' + (dy.rest ? 'rest' : dy.score + '/' + dy.of + (dy.note ? ' · ' + esc(dy.note) : '')) + '</div>';
   });
   return h + '</div></section>';
 }
@@ -860,6 +865,10 @@ function renderToday() {
   var flowQs = checkinQuestions(date);
   var flowSt = checkinFlowState(date, flowQs);
   var flowActive = flowSt.mode === "flow";
+  /* v27b item 5: the note step renders when the flow's questions are done
+     but the note hasn't been saved or skipped yet (checkinFlowState reports
+     mode "done" once qi passes the queue, so this is a separate branch). */
+  var notePending = !flowActive && ui.checkin && ui.checkin.date === date && ui.checkin.noteStep && !ui.checkin.done;
   if (flowActive) {
     var fq = flowQs[flowSt.queue[flowSt.qi]];
     var fans = checkinAnswer(date, fq);
@@ -878,6 +887,15 @@ function renderToday() {
           (cnt > 0 ? '<span class="extra-count">' + cnt + ' at this meal</span><button class="tick" data-act="seconds-minus" data-meal="' + ml + '">−1</button>' : '') +
           '</div><div class="habit-sub">' + secondsWeekTotal(date) + ' this week. About 2 a week is fine, mostly Shabbos (that one needs no logging).</div>';
       })() : "") + '</section>';
+  } else if (notePending) {
+    var exNote = getDayF(date, "note") || "";
+    h += '<section class="card checkin-card"><div class="checkin-progress">Note (optional)</div>' +
+      '<div class="checkin-q">' + (date === todayStr ? 'Add a note for today?' : 'Add a note for ' + shortDate(date) + '?') + '</div>' +
+      '<div><input id="checkinNote" type="text" maxlength="140" value="' + esc(exNote) + '" placeholder="One line, up to 140 characters"></div>' +
+      '<div class="ticks">' +
+      '<button class="tick" data-act="checkin-note-save">Save</button>' +
+      '<button class="tick" data-act="checkin-note-skip">Skip</button>' +
+      '<button class="tick" data-act="checkin-back">Back</button></div></section>';
   } else {
     h += '<section class="card checkin-done"><div class="row spread"><div><b>' + (date === todayStr ? 'Check-in done · ' + sc.score + '/' + sc.of : esc(longDate(date))) + '</b>' +
       '<div class="habit-sub">Seconds: ' + secondsWeekTotal(date) + ' this week. About 2 a week is fine, mostly Shabbos (that one needs no logging).</div></div>' +
@@ -896,7 +914,7 @@ function renderToday() {
   ];
   var visNum = 0; /* v27b item 3: numbering counts visible habits only, so a toggled-off habit leaves no gap. */
   HABIT_GROUPS.forEach(function (grp, gi) {
-  if (flowActive) return;
+  if (flowActive || notePending) return;
   h += '<section class="card"' + (gi === 0 ? ' id="habitGroups"' : '') + '><h3 class="habit-group">' + grp.label + '</h3>';
   STEADY.habits.forEach(function (hab, idx) {
     if (grp.ids.indexOf(hab.id) < 0) return;
@@ -955,6 +973,22 @@ function renderToday() {
   });
   h += '</section>';
   });
+
+  /* v27b item 5: one-line day note — shown here (today and past days) and
+     offered as the flow's last step; the weekly review carries it too. */
+  var curNote = getDayF(date, "note") || "";
+  h += '<section class="card"><h3>Note</h3>';
+  if (ui.noteEdit === date) {
+    h += '<input id="dayNoteInput" type="text" maxlength="140" value="' + esc(curNote) + '" placeholder="One line, up to 140 characters">' +
+      '<div class="ticks"><button class="tick" data-act="note-save">Save</button>' +
+      '<button class="tick" data-act="note-cancel">Cancel</button></div>';
+  } else if (curNote) {
+    h += '<div class="day-note-text">' + esc(curNote) + '</div>' +
+      '<div class="ticks"><button class="tick" data-act="note-edit">Edit</button></div>';
+  } else {
+    h += '<div class="ticks"><button class="tick" data-act="note-edit">Add a note</button></div>';
+  }
+  h += '</section>';
 
   // Prep day card
   if (date === todayStr && dowOf(date) === getSetting("prepDay") && dowOf(date) <= 5) {
@@ -1912,7 +1946,24 @@ document.addEventListener("click", function (ev) {
   if (act === "goto-today") { selDate = todayStr; render(true); return; }
   if (act === "checkin-yes" || act === "checkin-no") { checkinAnswerClick(act === "checkin-yes"); return; }
   if (act === "checkin-skip") { checkinAdvance(true); return; }
-  if (act === "checkin-back") { var cb = ui.checkin; if (cb && cb.date === selDate && cb.qi > 0) { cb.qi--; render(true); } return; }
+  if (act === "checkin-back") { var cb = ui.checkin; if (cb && cb.date === selDate && cb.qi > 0) { cb.qi--; delete cb.noteStep; render(true); } return; }
+  /* v27b item 5: the note step resolves through checkinAdvance, so the
+     done logic (flowDone, chain advance, done view) runs exactly once. */
+  if (act === "checkin-note-save") {
+    var nc = ui.checkin; if (!nc || nc.date !== selDate) return;
+    var ninp = document.getElementById("checkinNote");
+    opDaySilent(selDate, "note", ninp ? ninp.value.slice(0, 140) : "", { silent: true });
+    checkinAdvance(false);
+    return;
+  }
+  if (act === "checkin-note-skip") { checkinAdvance(false); return; }
+  if (act === "note-edit") { ui.noteEdit = selDate; saveUi(); render(true); return; }
+  if (act === "note-cancel") { ui.noteEdit = null; saveUi(); render(true); return; }
+  if (act === "note-save") {
+    var dinp = document.getElementById("dayNoteInput");
+    opDaySilent(selDate, "note", dinp ? dinp.value.slice(0, 140) : "", { silent: true });
+    ui.noteEdit = null; saveUi(); render(true); return;
+  }
   if (act === "checkin-open") { checkinOpen(selDate); return; }
   if (act === "checkin-forward") {
     if (selDate < todayStr) { selDate = addDays(selDate, 1); render(true); }
