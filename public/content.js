@@ -743,3 +743,303 @@ window.STEADY = {
   ]
  ]
 };
+
+/* v28b item 2: monthly 4-week exercise rotation. Set 1 is the established
+   routine (STEADY.moves); sets 2–4 are same-band bodyweight/home-friendly
+   variants. B swaps the push (index 1) and second-legs (index 3) moves. */
+STEADY.workoutSets = [
+ {
+  "name": "Foundation",
+  "moves": STEADY.moves,
+  "bSwap": {
+   "1": {
+    "name": "Wide push-ups",
+    "reps": 8,
+    "repsHi": 10,
+    "unit": "reps",
+    "note": "From your knees is fine",
+    "cues": [
+     "Hands well wider than shoulders",
+     "Straight line head to knees (or heels)",
+     "Lower until your chest is a fist from the floor",
+     "Push the floor away; don't let hips sag"
+    ]
+   },
+   "3": {
+    "name": "Reverse lunges",
+    "reps": 8,
+    "unit": "each leg",
+    "cues": [
+     "Step back, drop the back knee down",
+     "Front knee stays over the ankle",
+     "Push through the front heel to stand",
+     "Hold a chair or wall if balance is off"
+    ]
+   }
+  }
+ },
+ {
+  "name": "Legs & Core",
+  "moves": [
+   {
+    "name": "Sumo squats",
+    "reps": 12,
+    "unit": "reps",
+    "cues": [
+     "Feet wide, toes turned out",
+     "Sit back between your heels, chest up",
+     "Knees track over your toes",
+     "Squeeze glutes at the top"
+    ]
+   },
+   {
+    "name": "Incline push-ups",
+    "reps": 10,
+    "unit": "reps",
+    "note": "Hands on a counter or sturdy chair",
+    "cues": [
+     "Hands just wider than shoulders",
+     "Straight line head to heels",
+     "Lower your chest to the counter",
+     "Push away without letting hips sag"
+    ]
+   },
+   {
+    "name": "Backpack deadlifts",
+    "reps": 12,
+    "unit": "reps",
+    "note": "Load a backpack with books or water bottles",
+    "cues": [
+     "Hold the bag in front of your thighs",
+     "Hinge at the hips, flat back",
+     "Slide the bag down your legs",
+     "Drive hips forward to stand"
+    ]
+   },
+   {
+    "name": "Side lunges",
+    "reps": 8,
+    "unit": "each leg",
+    "cues": [
+     "Wide step to the side",
+     "Bend the stepping knee, other leg straight",
+     "Push off the bent leg to return",
+     "Keep your chest up"
+    ]
+   },
+   {
+    "name": "Dead bug",
+    "reps": 8,
+    "unit": "each side",
+    "cues": [
+     "Lie on your back, arms up, knees bent",
+     "Press your lower back into the floor",
+     "Extend opposite arm and leg slowly",
+     "Return without arching"
+    ]
+   }
+  ],
+  "bSwap": {
+   "1": {
+    "name": "Knee push-ups",
+    "reps": 10,
+    "unit": "reps",
+    "note": "From your knees is fine",
+    "cues": [
+     "Hands just wider than shoulders",
+     "Straight line head to knees",
+     "Lower until your chest is a fist from the floor",
+     "Push the floor away; don't let hips sag"
+    ]
+   },
+   "3": {
+    "name": "Reverse lunges",
+    "reps": 8,
+    "unit": "each leg",
+    "cues": [
+     "Step back, drop the back knee down",
+     "Front knee stays over the ankle",
+     "Push through the front heel to stand",
+     "Hold a chair or wall if balance is off"
+    ]
+   }
+  }
+ },
+ {
+  "name": "Upper & Balance",
+  "moves": [
+   {
+    "name": "Chair squats",
+    "reps": 12,
+    "unit": "reps",
+    "note": "Sit to a sturdy chair, stand tall",
+    "cues": [
+     "Feet shoulder-width, toes slightly out",
+     "Sit back until you touch the chair",
+     "Don't flop — control the descent",
+     "Stand tall and squeeze at the top"
+    ]
+   },
+   {
+    "name": "Pike push-ups",
+    "reps": 8,
+    "unit": "reps",
+    "cues": [
+     "Hips high, head between your arms",
+     "Hands shoulder-width",
+     "Bend elbows, crown of head toward the floor",
+     "Push back up slowly"
+    ]
+   },
+   {
+    "name": "Underhand backpack rows",
+    "reps": 12,
+    "unit": "reps",
+    "note": "Load a backpack with books or water bottles, palms up",
+    "cues": [
+     "Hold the bag with both hands, hinge at the hips",
+     "Flat back, slight knee bend, look at the floor",
+     "Pull the bag to your belly button",
+     "Squeeze shoulder blades, lower slowly"
+    ]
+   },
+   {
+    "name": "Step-ups",
+    "reps": 8,
+    "unit": "each leg",
+    "note": "A sturdy chair or low step",
+    "cues": [
+     "Step up fully, stand tall",
+     "Control the step down",
+     "Alternate legs",
+     "Hold a wall if balance is off"
+    ]
+   },
+   {
+    "name": "Side plank",
+    "secs": 20,
+    "unit": "sec",
+    "note": "20 sec each side",
+    "cues": [
+     "Elbow under shoulder, body in a line",
+     "Hips up, don't let them sag",
+     "Breathe steadily",
+     "Drop to a knee if needed"
+    ]
+   }
+  ],
+  "bSwap": {
+   "1": {
+    "name": "Incline push-ups",
+    "reps": 10,
+    "unit": "reps",
+    "note": "Hands on a counter or sturdy chair",
+    "cues": [
+     "Hands just wider than shoulders",
+     "Straight line head to heels",
+     "Lower your chest to the counter",
+     "Push away without letting hips sag"
+    ]
+   },
+   "3": {
+    "name": "Reverse lunges",
+    "reps": 8,
+    "unit": "each leg",
+    "cues": [
+     "Step back, drop the back knee down",
+     "Front knee stays over the ankle",
+     "Push through the front heel to stand",
+     "Hold a chair or wall if balance is off"
+    ]
+   }
+  }
+ },
+ {
+  "name": "Full Circuit",
+  "moves": [
+   {
+    "name": "Squat to calf raise",
+    "reps": 12,
+    "unit": "reps",
+    "cues": [
+     "Squat as usual, chest up",
+     "Rise onto your toes at the top",
+     "Lower heels slowly",
+     "Keep your chest up throughout"
+    ]
+   },
+   {
+    "name": "Knee push-ups",
+    "reps": 10,
+    "unit": "reps",
+    "note": "From your knees is fine",
+    "cues": [
+     "Hands just wider than shoulders",
+     "Straight line head to knees",
+     "Lower until your chest is a fist from the floor",
+     "Push the floor away; don't let hips sag"
+    ]
+   },
+   {
+    "name": "Single-arm backpack rows",
+    "reps": 10,
+    "unit": "each side",
+    "note": "One hand on a chair, bag in the other",
+    "cues": [
+     "Flat back, slight knee bend",
+     "Pull the bag to your hip",
+     "Lower slowly, no twisting",
+     "Switch sides and repeat"
+    ]
+   },
+   {
+    "name": "Curtsy lunges",
+    "reps": 8,
+    "unit": "each leg",
+    "cues": [
+     "Step back and across behind you",
+     "Drop the back knee down",
+     "Front knee stays over the ankle",
+     "Push through the front heel to stand"
+    ]
+   },
+   {
+    "name": "Bicycle crunches",
+    "reps": 10,
+    "unit": "each side",
+    "cues": [
+     "Lie on your back, hands behind your head",
+     "Elbows wide, don't pull your neck",
+     "Twist elbow toward the opposite knee",
+     "Extend the other leg low"
+    ]
+   }
+  ],
+  "bSwap": {
+   "1": {
+    "name": "Wide push-ups",
+    "reps": 8,
+    "repsHi": 10,
+    "unit": "reps",
+    "note": "From your knees is fine",
+    "cues": [
+     "Hands well wider than shoulders",
+     "Straight line head to knees (or heels)",
+     "Lower until your chest is a fist from the floor",
+     "Push the floor away; don't let hips sag"
+    ]
+   },
+   "3": {
+    "name": "Side lunges",
+    "reps": 8,
+    "unit": "each leg",
+    "cues": [
+     "Wide step to the side",
+     "Bend the stepping knee, other leg straight",
+     "Push off the bent leg to return",
+     "Keep your chest up"
+    ]
+   }
+  }
+ }
+];

@@ -793,6 +793,66 @@ try {
       await page.close();
     });
 
+    await test("r13.v28b.rotation-four-weeks", async () => {
+      const page = await freshPage(browser);
+      const sets = await page.evaluate(() => ["2026-11-01", "2026-11-08", "2026-11-15", "2026-11-22", "2026-11-29"].map((s) => workoutSetFor(s).setIdx));
+      assert(sets[0] !== sets[1] && sets[1] !== sets[2] && sets[2] !== sets[3] && sets[0] !== sets[2] && sets[0] !== sets[3] && sets[1] !== sets[3],
+        "four consecutive Sundays must show four different sets, got: " + JSON.stringify(sets));
+      assert(sets[4] === sets[0], "fifth Sunday must repeat set 1, got: " + JSON.stringify(sets));
+      await page.close();
+    });
+
+    await test("r13.v28b.rotation-ab-parity", async () => {
+      const page = await freshPage(browser);
+      await seedWorkout(page, ["2026-11-02"]);
+      let v = await page.evaluate(() => workoutSetFor("2026-11-04").variant);
+      assert(v === "B", "one earlier logged workout → variant B for Wed, got: " + v);
+      await seedWorkout(page, ["2026-11-03"]);
+      v = await page.evaluate(() => workoutSetFor("2026-11-04").variant);
+      assert(v === "A", "two earlier logged workouts → variant A for Wed, got: " + v);
+      v = await page.evaluate(() => workoutSetFor("2026-11-02").variant);
+      assert(v === "A", "a logged day keeps the variant it was performed as (Mon = A), got: " + v);
+      v = await page.evaluate(() => workoutSetFor("2026-11-03").variant);
+      assert(v === "B", "Tue performed B (Mon before it), got: " + v);
+      await clearDays(page, ["2026-11-02", "2026-11-03"]);
+      await page.close();
+    });
+
+    await test("r13.v28b.rotation-ui-names-set-and-variant", async () => {
+      const page = await freshPage(browser);
+      await seedWorkout(page, ["2026-11-02"]);
+      await page.evaluate(() => { selDate = "2026-11-04"; ui.tab = "workout"; saveUi(); render(true); });
+      await wait(300);
+      const txt = await page.evaluate(() => document.body.innerText);
+      assert(/Foundation/.test(txt), "workout tab must name the current set, body lacks Foundation");
+      assert(/Variant B/.test(txt), "workout tab must name variant B (one earlier log), body lacks Variant B");
+      assert(/Wide push-ups/.test(txt) && /Reverse lunges/.test(txt), "variant B must swap in Wide push-ups + Reverse lunges");
+      assert(!/^\s*Push-ups\s*$/m.test(txt), "variant B must not show the base Push-ups move");
+      await clearDays(page, ["2026-11-02"]);
+      await page.close();
+    });
+
+    await test("r13.v28b.rotation-level-rounds-rest", async () => {
+      const page = await freshPage(browser);
+      await page.evaluate(() => { opSettings("workoutLevel", 0); opSettings("workoutRounds", 3); selDate = "2026-11-04"; ui.tab = "workout"; saveUi(); render(true); });
+      await wait(300);
+      const before = await page.evaluate(() => document.querySelector(".move-amt").textContent);
+      assert(/12 reps/.test(before), "level 0 Squats should read 12 reps, got: " + before);
+      await click(page, 'button[data-act="level"][data-d="1"]');
+      const after = await page.evaluate(() => document.querySelector(".move-amt").textContent);
+      assert(/13 reps/.test(after), "level +1 should scale Squats to 13 reps, got: " + after);
+      await click(page, 'button[data-act="rounds-set"][data-n="4"]');
+      const rounds = await page.evaluate(() => getSetting("workoutRounds"));
+      assert(rounds === 4, "rounds seg must store 4, got: " + JSON.stringify(rounds));
+      await page.evaluate(() => { selDate = "2026-11-07"; render(true); });
+      await wait(300);
+      const rest = await page.evaluate(() => ({
+        note: document.body.innerText.indexOf("no logging today") >= 0,
+        btn: !!document.querySelector('button[data-act="workout-done"]')
+      }));
+      assert(rest.note && !rest.btn, "Shabbos must show no-logging and no log button, got: " + JSON.stringify(rest));
+      await page.close();
+    });
   }
 } finally {
   await browser.close();

@@ -577,6 +577,25 @@ function workoutsInWeek(anyDate) {
   for (var i = 0; i < 7; i++) if (getDayF(addDays(sun, i), "workout")) n++;
   return n;
 }
+/* v28b item 2: monthly 4-week exercise rotation. The set comes from the
+   week's Sunday (1st–4th week → sets 1–4, 5th week repeats set 1); the
+   variant comes from workouts logged EARLIER in the same week than the
+   viewed day, so a logged day keeps the variant it was performed as and
+   the display survives reloads with no new state. */
+function workoutSetFor(date) {
+  var sets = STEADY.workoutSets;
+  var sun = weekSunday(date);
+  var dom = parseLocal(sun).getDate();
+  var wom = Math.floor((dom - 1) / 7);
+  var setIdx = wom === 4 ? 0 : wom;
+  var set = sets[setIdx];
+  var n = 0;
+  for (var d = sun; d < date; d = addDays(d, 1)) if (getDayF(d, "workout")) n++;
+  var variant = (n % 2 === 0) ? "A" : "B";
+  var moves = set.moves.slice();
+  if (variant === "B") Object.keys(set.bSwap).forEach(function (k) { moves[+k] = set.bSwap[k]; });
+  return { setIdx: setIdx, set: set, variant: variant, moves: moves };
+}
 function streakCount() {
   var cur = todayStr, guard = 0;
   while (isRest(cur) && guard++ < 14) cur = addDays(cur, -1);
@@ -1097,9 +1116,11 @@ function renderWorkout() {
   ensureRestTimer();
   var date = selDate, L = workoutLevel(), rounds = getSetting("workoutRounds");
   var rest = restName(date);
+  var ws = workoutSetFor(date);
   var h = (date !== todayStr ? '<div class="banner">Logging for ' + esc(longDate(date)) + '. <button class="link-btn" data-act="goto-today">Back to today</button></div>' : "") +
     '<section class="card"><h2>20-minute home workout</h2>' +
     '<p class="muted">' + rounds + ' rounds of the 5 moves. Rest 1 minute between rounds. No gym needed.</p>' +
+    '<p>This week\'s set: <b>' + esc(ws.set.name) + '</b> · Variant ' + ws.variant + '</p>' +
     '<p><b>' + workoutsInWeek(date) + '/' + getSetting("workoutTarget") + '</b> this week' + (date !== todayStr ? ' · for ' + esc(longDate(date)) : "") + '</p>';
   var marks = (ui.rounds[date] || []).slice();
   h += '<div class="chips">';
@@ -1115,7 +1136,7 @@ function renderWorkout() {
   STEADY.warmup.forEach(function (w) { h += '<li><b>' + esc(w[0]) + '</b> — ' + esc(w[1]) + '</li>'; });
   h += '</ul></details>';
 
-  STEADY.moves.forEach(function (mv, idx) {
+  ws.moves.forEach(function (mv, idx) {
     h += '<section class="card"><div class="move"><div class="habit-num">' + (idx + 1) + '</div><div class="grow">' +
       '<div class="row spread"><b>' + esc(mv.name) + '</b><span class="move-amt">' + moveAmount(mv, L) + '</span></div>' +
       (mv.note ? '<div class="habit-sub">' + esc(mv.note) + '</div>' : "") +
