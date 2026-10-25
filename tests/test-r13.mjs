@@ -741,6 +741,7 @@ try {
       page.on("dialog", async (d) => { dialogs.push(d.message()); await d.accept().catch(() => {}); });
       const tw = await page.evaluate(() => weekSunday(todayStr));
       const fs = await import("fs");
+      fs.mkdirSync("/tmp/testbed", { recursive: true });
       fs.writeFileSync("/tmp/testbed/v28a-old-backup.json", JSON.stringify({ settings: { f: {} }, favorites: { items: {} }, days: {},
         grocery: { f: {} }, plans: { [tw]: { f: { pro: { v: ["chicken", "yogurt"], ts: 111 }, m4D: { v: { id: "y3" }, ts: 112 } } } } }));
       const input = await page.$("#restoreInput");
