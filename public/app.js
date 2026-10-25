@@ -2598,6 +2598,16 @@ function sanitizeBackup(parsed) {
       c.v = kept;
       return c;
     }
+    /* v28b: coffee/alcohol/water-unit survive backup restore — they were
+       silently dropped (no branch), so a restore reset them to defaults. */
+    if (name === "coffeeOn" || name === "alcoholOn") {
+      if (c.v === true || c.v === false) return c;
+      fixed++; return null;
+    }
+    if (name === "waterUnit") {
+      if (c.v === "cups" || c.v === "oz") return c;
+      fixed++; return null;
+    }
     fixed++; return null;
   }
   function cleanPlanCell(name, c) {

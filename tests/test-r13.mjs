@@ -757,6 +757,43 @@ try {
       await page.close();
     });
   }
+  if (run("v28b")) {
+    /* Batch B (v28b): sanitizer fix first, then exercise rotation. */
+    const click = async (page, sel) => { await page.waitForSelector(sel, { timeout: 5000 }); await page.click(sel); await wait(250); };
+    const seedWorkout = async (page, dates) => page.evaluate((dates) => {
+      dates.forEach((d) => { state.days[d] = { f: { workout: { v: true, ts: 1000 } } }; });
+      saveLocal();
+    }, dates);
+    const clearDays = async (page, dates) => page.evaluate((dates) => {
+      dates.forEach((d) => { delete state.days[d]; });
+      saveLocal();
+    }, dates);
+
+    await test("r13.v28b.sanitizer-survives", async () => {
+      const page = await freshPage(browser);
+      const dialogs = [];
+      page.on("dialog", async (d) => { dialogs.push(d.message()); await d.accept().catch(() => {}); });
+      const fs = await import("fs");
+      fs.mkdirSync("/tmp/testbed", { recursive: true });
+      fs.writeFileSync("/tmp/testbed/v28b-sanitizer.json", JSON.stringify({ settings: { f: {
+        coffeeOn: { v: true, ts: 111 }, alcoholOn: { v: true, ts: 112 }, waterUnit: { v: "oz", ts: 113 }
+      } }, favorites: { items: {} }, days: {}, grocery: { f: {} }, plans: {} }));
+      const input = await page.$("#restoreInput");
+      await input.uploadFile("/tmp/testbed/v28b-sanitizer.json");
+      await page.waitForFunction(() => false, { timeout: 1 }).catch(() => {});
+      for (let i = 0; i < 30 && dialogs.length < 2; i++) await wait(150);
+      assert(dialogs.length >= 2, "expected confirm + alert dialogs, got " + JSON.stringify(dialogs));
+      const alertMsg = dialogs[dialogs.length - 1];
+      assert(!/bad value/.test(alertMsg), "alert should report 0 bad values, got: " + alertMsg);
+      await wait(500);
+      const vals = await page.evaluate(() => ({ coffee: getSetting("coffeeOn"), alcohol: getSetting("alcoholOn"), unit: getSetting("waterUnit") }));
+      assert(vals.coffee === true, "coffeeOn must survive restore, got: " + JSON.stringify(vals));
+      assert(vals.alcohol === true, "alcoholOn must survive restore, got: " + JSON.stringify(vals));
+      assert(vals.unit === "oz", "waterUnit must survive restore, got: " + JSON.stringify(vals));
+      await page.close();
+    });
+
+  }
 } finally {
   await browser.close();
 }
