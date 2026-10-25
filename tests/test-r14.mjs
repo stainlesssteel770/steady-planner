@@ -1005,10 +1005,12 @@ try {
       await page.reload({ waitUntil: "networkidle0" });
       await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
       // Seed today's lunch + dinner from the data (meals with a method and
-      // at least two resolvable ingredients).
+      // at least two resolvable ingredients). v28d: linked meals show the
+      // link instead of the method, so pick unlinked meals here — the
+      // linked rendering is covered by r13.v28d.
       const seedInfo = await page.evaluate(() => {
         const wk = weekSunday(todayStr), dow = dowOf(todayStr);
-        const pickFor = (slot) => Object.values(PLAN_DATA.MEALS).find((m) => (m.s || "").indexOf(slot) >= 0 && m.how && (m.ing || []).filter((p) => PLAN_DATA.ITEMS[p[0]]).length >= 2);
+        const pickFor = (slot) => Object.values(PLAN_DATA.MEALS).find((m) => (m.s || "").indexOf(slot) >= 0 && !m.src && m.how && (m.ing || []).filter((p) => PLAN_DATA.ITEMS[p[0]]).length >= 2);
         const lunch = pickFor("L"), dinner = pickFor("D");
         state.plans[wk] = { f: { pro: { v: [lunch.p, dinner.p], ts: 1 } } };
         state.plans[wk].f["m" + dow + "L"] = { v: { id: lunch.id }, ts: 1 };

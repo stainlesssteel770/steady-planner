@@ -1,6 +1,6 @@
 /* Steady BETA BATCH 4 (steady-v22) suite.
    Sections: kashrus (item 1) | mdgap (item 4) | picker (item 3) |
-             dots (item 2) | long (item 5) | v28a (item 1 + item 5)
+             dots (item 2) | long (item 5) | v28a (item 1 + item 5) | v28d (item 4)
    Usage: node test-r13.mjs [section|all]   (WIDTH env, default 390) */
 import puppeteer from "puppeteer-core";
 
@@ -977,6 +977,77 @@ try {
       await wait(500);
       const picky = await page.evaluate(() => getSetting("pickyMode"));
       assert(picky === false, "old backup must load with picky mode OFF, got: " + JSON.stringify(picky));
+      await page.close();
+    });
+  }
+  if (run("v28d")) {
+    /* Batch D (v28d): recipe links — verified pages on the approved list only. */
+    await test("r13.v28d.src-domains-approved", async () => {
+      const page = await freshPage(browser);
+      const out = await page.evaluate(() => {
+        const APPROVED = ["kosher.com", "busyinbrooklyn.com", "overtimecook.com", "kosherinthekitch.com", "jamiegeller.com", "betweencarpools.com", "kosheronabudget.com", "chabad.org"];
+        const bad = [];
+        let linked = 0;
+        Object.keys(PD.MEALS).forEach((id) => {
+          const s = PD.MEALS[id].src;
+          if (!s) return;
+          linked++;
+          let host = "";
+          try { host = new URL(s.url).hostname.replace(/^www\./, ""); } catch (e) {}
+          if (APPROVED.indexOf(host) < 0) bad.push({ id, reason: "domain-not-approved", host });
+          else if (s.site !== host) bad.push({ id, reason: "site-mismatch", site: s.site, host });
+          if (s.match !== "exact" && s.match !== "near") bad.push({ id, reason: "bad-match", match: s.match });
+        });
+        return { linked, bad };
+      });
+      assert(out.linked >= 1, "expected at least one linked meal, got none");
+      assert(out.bad.length === 0, "bad src entries: " + JSON.stringify(out.bad));
+      await page.close();
+    });
+
+    await test("r13.v28d.linked-renders-link-not-how", async () => {
+      const page = await freshPage(browser);
+      const out = await page.evaluate(() => {
+        const week = addDays(weekSunday(todayStr), 7);
+        const ctx = planCtx(week);
+        const linkedId = Object.keys(PD.MEALS).find((id) => PD.MEALS[id].src);
+        const unlinkedId = Object.keys(PD.MEALS).find((id) => !PD.MEALS[id].src);
+        const linkedHtml = mealCardHTML(ctx, { pro: [PD.MEALS[linkedId].p], m0L: { id: linkedId } }, "m0L");
+        const unlinkedHtml = mealCardHTML(ctx, { pro: [PD.MEALS[unlinkedId].p], m0L: { id: unlinkedId } }, "m0L");
+        return { linkedId, unlinkedId, linkedHtml, unlinkedHtml, linkedHow: esc(PD.MEALS[linkedId].how), unlinkedHow: esc(PD.MEALS[unlinkedId].how) };
+      });
+      assert(out.linkedHtml.indexOf("<a ") >= 0 && (out.linkedHtml.indexOf("Recipe ↗") >= 0 || out.linkedHtml.indexOf("recipe ↗") >= 0), "linked meal card must carry a Recipe link, got: " + out.linkedHtml);
+      assert(out.linkedHtml.indexOf(out.linkedHow) < 0, "linked meal card must not show its how-to text");
+      assert(out.unlinkedHtml.indexOf(out.unlinkedHow) >= 0, "unlinked meal card must still show its how-to text, got: " + out.unlinkedHtml);
+      assert(out.unlinkedHtml.indexOf("<a ") < 0, "unlinked meal card must not carry a link, got: " + out.unlinkedHtml);
+      await page.close();
+    });
+
+    await test("r13.v28d.meal-how-helper", async () => {
+      const page = await freshPage(browser);
+      const out = await page.evaluate(() => {
+        const near = mealHowHTML({ how: "HOWTEXT", src: { site: "kosher.com", url: "https://www.kosher.com/recipe/x", match: "near" } }, false);
+        const exact = mealHowHTML({ how: "HOWTEXT", src: { site: "kosher.com", url: "https://www.kosher.com/recipe/x", match: "exact" } }, false);
+        const plain = mealHowHTML({ how: "HOWTEXT" }, false);
+        const leftover = mealHowHTML({ how: "HOWTEXT", src: { site: "kosher.com", url: "https://www.kosher.com/recipe/x", match: "exact" } }, true);
+        return { near, exact, plain, leftover };
+      });
+      assert(out.near.indexOf("<a ") >= 0 && out.near.indexOf("Near-match") >= 0, "near-match link must be labeled Near-match, got: " + out.near);
+      assert(out.near.indexOf("HOWTEXT") < 0, "near-match must replace the how-to text");
+      assert(out.exact.indexOf("Recipe") >= 0 && out.exact.indexOf("Near-match") < 0, "exact link must not carry the near-match label, got: " + out.exact);
+      assert(out.plain.indexOf("HOWTEXT") >= 0 && out.plain.indexOf("<a ") < 0, "unlinked meal must render its how-to text with no link, got: " + out.plain);
+      assert(out.leftover.indexOf("Second portion") >= 0 && out.leftover.indexOf("<a ") < 0, "leftovers must keep the leftovers line, never a link, got: " + out.leftover);
+      await page.close();
+    });
+
+    await test("r13.v28d.wraps-not-simple", async () => {
+      const page = await freshPage(browser);
+      const out = await page.evaluate(() => ({
+        c3: PD.MEALS.c3.simple, d2: PD.MEALS.d2.simple, e6: PD.MEALS.e6.simple,
+        count: Object.keys(PD.MEALS).filter((id) => PD.MEALS[id].simple).length
+      }));
+      assert(out.c3 === false && out.d2 === false && out.e6 === false, "the three wraps must not be flagged simple, got: " + JSON.stringify(out));
+      assert(out.count === 19, "simple count must be 19 after un-flagging the three wraps, got " + out.count);
       await page.close();
     });
   }

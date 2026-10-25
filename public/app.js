@@ -839,7 +839,7 @@ function renderToday() {
         lines += '<p class="meal-line-row"><button class="meal-line" data-act="today-meal" data-k="' + key + '" aria-expanded="' + open + '"><b>' + (sl === "L" ? "Lunch" : "Dinner") + ':</b> ' + (r.lo ? "Leftovers: " : "") + esc(r.meal.n) + ' <span class="ml-caret" aria-hidden="true">' + (open ? "▾" : "▸") + '</span></button></p>';
         if (open) {
           var srv = ENGINE.servingsOf(cells)[sl];
-          lines += '<div class="meal-detail"><div class="meal-how">' + (r.lo ? "Second portion of last night's dinner, packed on the night." : esc(r.meal.how)) + '</div>';
+          lines += '<div class="meal-detail"><div class="meal-how">' + mealHowHTML(r.meal, r.lo) + '</div>';
           var ings = (r.meal.ing || []).filter(function (pair) { return PD.ITEMS[pair[0]]; });
           if (ings.length) lines += '<ul class="meal-ings">' + ings.map(function (pair) { var q = ENGINE.qtyText(pair[0], pair[1] * srv); return '<li>' + esc(PD.ITEMS[pair[0]][0]) + (q ? ' — ' + esc(q) : "") + '</li>'; }).join("") + '</ul>';
           lines += '</div>';
@@ -1313,6 +1313,18 @@ function planProHTML(week, cells, ctx, pros) {
   h += '</section>';
   return h;
 }
+/* v28d item 4: a linked meal shows its recipe link instead of the Tab-written
+   how-to text; a near match says so. Leftovers never link. */
+function mealHowHTML(meal, lo) {
+  if (lo) return "Second portion of last night's dinner, packed on the night.";
+  var src = meal && meal.src;
+  if (src) {
+    var label = src.match === "near" ? "Near-match recipe ↗" : "Recipe ↗";
+    var note = src.match === "near" ? ' <span class="muted small">similar dish, not this exact meal · via ' + esc(src.site) + '</span>' : ' <span class="muted small">via ' + esc(src.site) + '</span>';
+    return '<a href="' + esc(src.url) + '" target="_blank" rel="noopener">' + label + '</a>' + note;
+  }
+  return esc(meal.how);
+}
 function mealCardHTML(ctx, cells, key) {
   var r = ENGINE.resolve(ctx, cells, key);
   if (!r) return "";
@@ -1326,7 +1338,7 @@ function mealCardHTML(ctx, cells, key) {
   var pplMC = r.slot === "L" ? srvMC.L : srvMC.D;
   if (pplMC > 1) hint += " · for " + pplMC;
   h += '<div class="meal-name">' + tagPill(r.meal.t) + ' ' + (r.lo ? "Leftovers: " : "") + esc(r.meal.n) + ' <span class="muted small">· ' + hint + '</span></div>' +
-    '<div class="meal-how">' + (r.lo ? "Second portion of last night's dinner, packed on the night." : esc(r.meal.how)) + '</div>';
+    '<div class="meal-how">' + mealHowHTML(r.meal, r.lo) + '</div>';
   /* v28c item 3: a slot that fell back to the full pool says so. */
   var rawCell = cells[key];
   if (rawCell && rawCell.fb) h += '<div class="muted small">no simple option — showing regular</div>';
