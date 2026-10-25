@@ -284,7 +284,7 @@ try {
 
     await test("r13.picker.blocked-meals-shown-marked-and-pickable", async () => {
       const { page, fake } = await freshPinnedPage(browser);
-      const { tw } = await seedWeek(page, { pro: ["chicken", "yogurt"], m4D: { id: "y3" }, m4L: { id: "y1" } });
+      const { tw } = await seedWeek(page, { pro: ["chicken", "gbeef", "stew", "yogurt"], m4D: { id: "y3" }, m4L: { id: "y1" } });
       await assertPin(page, fake);
       await openViaCard(page, "m4L");
       const pk = await page.evaluate(() => {
@@ -298,14 +298,14 @@ try {
       assert(pk.normalTags.every((t) => t !== "M"), "normal list must not contain meat under a dairy dinner");
       assert(pk.blocked.length >= 3, "meat lunches should be in the override section, got " + pk.blocked.join(","));
       assert(/Not usually allowed/.test(pk.hint), "override section must be explained: " + pk.hint);
-      await page.click('#mpList .mp-opt-blocked[data-id="c3"]');
+      await page.click('#mpList .mp-opt-blocked[data-id="r-chicken-shawarma-salad"]');
       await wait(450);
       const after = await page.evaluate((tw) => ({
         cell: planCells(tw).m4L || null,
         warn: document.body.textContent.indexOf("Meat lunch, dairy dinner") >= 0,
         dlgOpen: document.getElementById("mealPickerDlg").open
       }), tw);
-      assert(after.cell && after.cell.id === "c3", "picking the blocked meal should save it, got " + JSON.stringify(after.cell));
+      assert(after.cell && after.cell.id === "r-chicken-shawarma-salad", "picking the blocked meal should save it, got " + JSON.stringify(after.cell));
       assert(after.warn, "the day must show the existing meat/dairy warning after an override pick");
       assert(!after.dlgOpen, "picker should close after the pick");
       await page.close();
@@ -339,7 +339,7 @@ try {
       await openViaCard(page, "m4L");
       const pk = await page.evaluate(() => ({
         blocked: document.querySelectorAll("#mpList .mp-opt-blocked").length,
-        meatNormal: Array.from(document.querySelectorAll("#mpList .mp-opt[data-id]")).filter((e) => ["c2", "c3", "c5", "c6"].indexOf(e.getAttribute("data-id")) >= 0 && !e.classList.contains("mp-opt-blocked")).length,
+        meatNormal: Array.from(document.querySelectorAll("#mpList .mp-opt[data-id]")).filter((e) => PLAN_DATA.MEALS[e.getAttribute("data-id")].t === "M" && !e.classList.contains("mp-opt-blocked")).length,
         hint: (document.querySelector("#mpList .mp-hint") || {}).textContent || ""
       }));
       assert(pk.blocked === 0, "with mdGap on nothing is blocked, got " + pk.blocked + " blocked rows");
@@ -390,42 +390,48 @@ try {
     });
   }
 
-  /* ============ Item 5: long = hands-on prep; leftovers never spend ============ */
+  /* ============ Item 5 (v29a P1): long = total time for recipes; leftovers never spend ============ */
   if (run("long")) {
-    await test("r13.long.stew-pots-are-not-long-anymore", async () => {
-      const page = await freshPage(browser);
-      const res = await page.evaluate((mulberrySrc) => {
-        const mulberry = eval(mulberrySrc);
-        const ctx = { week: "2026-10-18", today: "2026-10-18", rest: {}, pre: {} };
-        let ge3 = 0;
-        for (let s = 1; s <= 500; s++) {
-          const out = PLAN_ENGINE.generate(ctx, { pro: ["stew", "chicken"] }, mulberry(s));
-          let n = 0;
-          for (let d = 0; d <= 4; d++) { const c = out["m" + d + "D"]; if (c && c.id && c.id.charAt(0) === "s") n++; }
-          if (n >= 3) ge3++;
-        }
-        return { ge3 };
-      }, MULBERRY);
-      assert(res.ge3 > 50, "stew dinners (15-20 min hands-on) should be able to reach 3+ in a week, got " + res.ge3 + "/500 weeks");
-      await page.close();
-    });
-
-    await test("r13.long.schnitzel-dinners-capped-at-two", async () => {
+    await test("r13.long.long-dinners-capped-at-two", async () => {
+      // v29a P1: long = total time for recipes. With a non-long dinner
+      // available (parfait, 10 min), the weekly cap binds at 2 long
+      // dinners; without one, relaxation would repeat longs instead.
       const page = await freshPage(browser);
       const res = await page.evaluate((mulberrySrc) => {
         const mulberry = eval(mulberrySrc);
         const ctx = { week: "2026-10-18", today: "2026-10-18", rest: {}, pre: {} };
         let max = 0, atCap = 0;
         for (let s = 1; s <= 500; s++) {
-          const out = PLAN_ENGINE.generate(ctx, { pro: ["schnitzel", "chicken", "gbeef"] }, mulberry(s));
+          const out = PLAN_ENGINE.generate(ctx, { pro: ["stew", "chicken", "yogurt"] }, mulberry(s));
           let n = 0;
-          for (let d = 0; d <= 4; d++) { const c = out["m" + d + "D"]; if (c && ["z1", "z3", "z4"].indexOf(c.id) >= 0) n++; }
+          for (let d = 0; d <= 4; d++) { const c = out["m" + d + "D"]; if (c && c.id && PLAN_ENGINE.isLong(PLAN_DATA.MEALS[c.id], 30)) n++; }
           max = Math.max(max, n); if (n === 2) atCap++;
         }
         return { max, atCap };
       }, MULBERRY);
-      assert(res.max <= 2, "long schnitzel dinners (35/45/33 hands-on) must cap at 2, max seen " + res.max);
+      assert(res.max <= 2, "long dinners (total time >= 30) must cap at 2, max seen " + res.max);
       assert(res.atCap > 50, "the cap should actually bind in some weeks, at-cap weeks " + res.atCap + "/500");
+      await page.close();
+    });
+
+    await test("r13.long.short-dinners-not-capped", async () => {
+      // v29a P1: matzo-schnitzel (25 min total) is below the default 30
+      // threshold, so the cap never binds it — 3+ schnitzel dinners
+      // (via repeats) must be reachable in a week.
+      const page = await freshPage(browser);
+      const res = await page.evaluate((mulberrySrc) => {
+        const mulberry = eval(mulberrySrc);
+        const ctx = { week: "2026-10-18", today: "2026-10-18", rest: {}, pre: {} };
+        let ge3 = 0;
+        for (let s = 1; s <= 500; s++) {
+          const out = PLAN_ENGINE.generate(ctx, { pro: ["schnitzel", "chicken"] }, mulberry(s));
+          let n = 0;
+          for (let d = 0; d <= 4; d++) { const c = out["m" + d + "D"]; if (c && c.id === "r-matzo-schnitzel") n++; }
+          if (n >= 3) ge3++;
+        }
+        return { ge3 };
+      }, MULBERRY);
+      assert(res.ge3 > 50, "25-min schnitzel dinners (not long at 30) should be able to reach 3+ in a week, got " + res.ge3 + "/500 weeks");
       await page.close();
     });
 
@@ -438,17 +444,19 @@ try {
         for (let s = 1; s <= 500; s++) {
           const o45 = PLAN_ENGINE.generate(ctx, { pro: ["schnitzel", "chicken"], longMin: 45 }, mulberry(s));
           let n = 0;
-          for (let d = 0; d <= 4; d++) { const c = o45["m" + d + "D"]; if (c && c.id && c.id.charAt(0) === "z") n++; }
+          for (let d = 0; d <= 4; d++) { const c = o45["m" + d + "D"]; if (c && c.id === "r-matzo-schnitzel") n++; }
           if (n >= 3) ge3at45++;
-          const o20 = PLAN_ENGINE.generate(ctx, { pro: ["schnitzel", "chicken", "gbeef"], longMin: 20 }, mulberry(s));
+          // At 20 every recipe in the set is long except parfait, which
+          // is the non-long fallback that lets the cap bind at 2.
+          const o20 = PLAN_ENGINE.generate(ctx, { pro: ["schnitzel", "chicken", "gbeef", "yogurt"], longMin: 20 }, mulberry(s));
           let nl = 0;
-          for (let d = 0; d <= 4; d++) { const c = o20["m" + d + "D"]; if (c && c.id && PLAN_ENGINE.handsOn(PLAN_DATA.MEALS[c.id]) >= 20) nl++; }
+          for (let d = 0; d <= 4; d++) { const c = o20["m" + d + "D"]; if (c && c.id && PLAN_ENGINE.isLong(PLAN_DATA.MEALS[c.id], 20)) nl++; }
           maxLong20 = Math.max(maxLong20, nl);
         }
         return { ge3at45, maxLong20, def: PLAN_ENGINE.longMinOf({}), bad: PLAN_ENGINE.longMinOf({ longMin: "x" }) };
       }, MULBERRY);
-      assert(res.ge3at45 > 50, "at longMin 45 only z3 is long, so 3+ schnitzel dinners should occur, got " + res.ge3at45 + "/500");
-      assert(res.maxLong20 <= 2, "at longMin 20 the cap must bind all hands-on>=20 dinners, max seen " + res.maxLong20);
+      assert(res.ge3at45 > 50, "at longMin 45 schnitzel (25 min) is not long, so 3+ schnitzel dinners should occur, got " + res.ge3at45 + "/500");
+      assert(res.maxLong20 <= 2, "at longMin 20 the cap must bind all total-time>=20 dinners, max seen " + res.maxLong20);
       assert(res.def === 30 && res.bad === 30, "longMinOf must default to 30: " + JSON.stringify(res));
       await page.close();
     });
@@ -460,14 +468,18 @@ try {
         const ctx = { week: "2026-10-18", today: "2026-10-21", rest: {}, pre: {} };
         let hit = 0;
         for (let s = 1; s <= 200; s++) {
-          const cells = { pro: ["stew", "chicken"], m0D: { id: "s1" }, m0L: { id: "c6" }, m1L: { lo: 1 }, m1D: { id: "c1" }, m2D: { id: "c4" }, m2L: { id: "c3" } };
+          // Past days: exactly one long dinner (bazin) + its leftover
+          // lunch. Every other past cell is non-long, so the remaining
+          // budget is 1 — Wed/Thu must still be able to serve a long
+          // dinner. If the leftover lunch spent the budget too, none could.
+          const cells = { pro: ["stew", "chicken", "gbeef", "schnitzel", "yogurt"], m0D: { id: "r-bazin" }, m0L: { id: "r-berry-yogurt-granola-parfait" }, m1L: { lo: 1 }, m1D: { id: "r-matzo-schnitzel" }, m2D: { id: "r-berry-yogurt-granola-parfait" }, m2L: { id: "r-matzo-schnitzel" } };
           const out = PLAN_ENGINE.generate(ctx, cells, mulberry(s + 31));
-          const ds = [out.m3D, out.m4D].filter((c) => c && c.id).map((c) => c.id);
-          if (ds.some((x) => x === "s3" || x === "s4")) hit++;
+          const ds = [out.m3D, out.m4D].filter((c) => c && c.id).map((c) => PLAN_DATA.MEALS[c.id]);
+          if (ds.some((m) => PLAN_ENGINE.isLong(m, 30))) hit++;
         }
         return { hit };
       }, MULBERRY);
-      assert(res.hit > 40, "after a past s1 dinner + its leftover lunch, Wed/Thu should still be able to serve s3/s4 (old rules: budget spent twice, 0), got " + res.hit + "/200");
+      assert(res.hit > 40, "after a past bazin dinner + its leftover lunch, Wed/Thu should still be able to serve a long dinner (leftover must not spend the budget), got " + res.hit + "/200");
       await page.close();
     });
 
@@ -695,7 +707,7 @@ try {
     await test("r13.v28a.kashrus-still-blocked", async () => {
       const { page, fake } = await freshPinnedPage(browser);
       await setExclViaUI(page, ["salmon"]);
-      await seedPlan(page, { pro: ["chicken", "yogurt"], m4D: { id: "y3" }, m4L: { id: "y1" } }, "week");
+      await seedPlan(page, { pro: ["chicken", "gbeef", "stew", "yogurt"], m4D: { id: "y3" }, m4L: { id: "y1" } }, "week");
       await assertPin(page, fake);
       await openViaCard(page, "m4L");
       const pk = await page.evaluate(() => {
@@ -878,13 +890,15 @@ try {
 
     await test("r13.v28c.picky-on-mixed", async () => {
       const page = await freshPage(browser);
-      const week = await buildPickyWeek(page, ["chicken", "tofu"], true);
+      // v29a: chicken's only recipe (shawarma salad) is not simple, salmon's
+      // is — so the mixed simple/fallback week now uses chicken+salmon.
+      const week = await buildPickyWeek(page, ["chicken", "salmon"], true);
       await wait(400);
       const meals = await readWeekMeals(page, week);
       assert(meals.length >= 6, "expected a full generated week, got: " + JSON.stringify(meals));
       assert(meals.every((m) => m.simple || m.fb), "every picky-ON meal must be simple or fallback-flagged, got: " + JSON.stringify(meals));
       assert(meals.some((m) => m.simple), "expected at least one simple meal, got: " + JSON.stringify(meals));
-      assert(meals.some((m) => m.fb), "expected at least one fallback (tofu has no simple meals), got: " + JSON.stringify(meals));
+      assert(meals.some((m) => m.fb), "expected at least one fallback (chicken has no simple recipe), got: " + JSON.stringify(meals));
       await clearPickyWeek(page, week);
       await page.close();
     });
@@ -917,7 +931,10 @@ try {
       const out = await page.evaluate(() => {
         opSettings("pickyMode", true);
         const ctx = planCtx(addDays(weekSunday(todayStr), 7));
-        const res = ENGINE.shuffleOne(ctx, { pro: ["chicken"], m0L: { id: "c4" } }, "m0L");
+        // v29a: chicken has no simple recipe, so the simple-shuffle week
+        // uses salmon+whitefish (both simple); the current meal is the
+        // salmon recipe, so the shuffle must land on the whitefish one.
+        const res = ENGINE.shuffleOne(ctx, { pro: ["salmon", "whitefish"], m0L: { id: "r-dry-rub-salmon" } }, "m0L");
         opSettings("pickyMode", false);
         return { id: res.m0L && res.m0L.id, fb: !!(res.m0L && res.m0L.fb), simple: !!(res.m0L && res.m0L.id && PD.MEALS[res.m0L.id].simple) };
       });
@@ -1047,7 +1064,7 @@ try {
         count: Object.keys(PD.MEALS).filter((id) => PD.MEALS[id].simple).length
       }));
       assert(out.c3 === false && out.d2 === false && out.e6 === false, "the three wraps must not be flagged simple, got: " + JSON.stringify(out));
-      assert(out.count === 19, "simple count must be 19 after un-flagging the three wraps, got " + out.count);
+      assert(out.count === 23, "simple count must be 19 old + 4 recipe simples (v29a), got " + out.count);
       await page.close();
     });
   }

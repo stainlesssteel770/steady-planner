@@ -1337,7 +1337,9 @@ function mealCardHTML(ctx, cells, key) {
   var srvMC = ENGINE.servingsOf(cells);
   var pplMC = r.slot === "L" ? srvMC.L : srvMC.D;
   if (pplMC > 1) hint += " · for " + pplMC;
-  h += '<div class="meal-name">' + tagPill(r.meal.t) + ' ' + (r.lo ? "Leftovers: " : "") + esc(r.meal.n) + ' <span class="muted small">· ' + hint + '</span></div>' +
+  /* v29a: recipe servings are display-only (P3); retired meals are marked. */
+  if (r.meal.servings) hint += " · serves " + r.meal.servings;
+  h += '<div class="meal-name">' + tagPill(r.meal.t) + ' ' + (r.lo ? "Leftovers: " : "") + esc(r.meal.n) + (r.meal.retired ? ' <span class="muted small">· old meal</span>' : "") + ' <span class="muted small">· ' + hint + '</span></div>' +
     '<div class="meal-how">' + mealHowHTML(r.meal, r.lo) + '</div>';
   /* v28c item 3: a slot that fell back to the full pool says so. */
   var rawCell = cells[key];
@@ -1829,6 +1831,9 @@ function openMealPicker(key) {
   }
   var blockedList = [];
   var list = Object.keys(PD.MEALS).map(function (id) { return PD.MEALS[id]; }).filter(function (meal) {
+    /* v29a: retired built-in meals never appear in the picker (a manual
+       re-pick is a replacement, same rule as generate/shuffle). */
+    if (meal.retired) return false;
     /* v28a item 1: excluded proteins never appear — not even in the
        "Not usually allowed" section (that section is for kashrus, not
        for proteins the user does not eat). */

@@ -159,7 +159,7 @@ try {
       const page = await freshPage(browser);
       const { tw } = await weeks(page);
       await seed(page, tw, {
-        pro: ["chicken", "salmon", "yogurt"],
+        pro: ["chicken", "salmon", "yogurt", "gbeef"],
         m1D: { id: "c1" },          // Mon dinner: meat, makes leftovers
         m2L: { lo: 1 },             // Tue lunch: leftovers of Mon dinner
         m2D: { id: "y3" }           // Tue dinner: dairy

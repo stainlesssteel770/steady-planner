@@ -110,8 +110,8 @@ try {
       const { nw } = await weeks(page);
       const ids = await page.evaluate(() => {
         const meals = Object.values(PLAN_DATA.MEALS);
-        const loD = meals.find((mm) => mm.s.indexOf("D") >= 0 && mm.lo);
-        const nonLoD = meals.find((mm) => mm.s.indexOf("D") >= 0 && !mm.lo && mm.id !== loD.id);
+        const loD = meals.find((mm) => !mm.retired && mm.s.indexOf("D") >= 0 && mm.lo);
+        const nonLoD = meals.find((mm) => !mm.retired && mm.s.indexOf("D") >= 0 && !mm.lo && mm.id !== loD.id);
         return { loD: loD.id, loP: loD.p, nonLoD: nonLoD.id, nonLoP: nonLoD.p };
       });
       await seed(page, nw, { pro: [...new Set([ids.loP, ids.nonLoP, "eggs"])], m1D: { id: ids.loD }, m2L: { lo: 1 } });
@@ -141,8 +141,8 @@ try {
       const { nw } = await weeks(page);
       const ids = await page.evaluate(() => {
         const meals = Object.values(PLAN_DATA.MEALS);
-        const loD = meals.find((mm) => mm.s.indexOf("D") >= 0 && mm.lo);
-        const nonLoD = meals.find((mm) => mm.s.indexOf("D") >= 0 && !mm.lo && mm.id !== loD.id);
+        const loD = meals.find((mm) => !mm.retired && mm.s.indexOf("D") >= 0 && mm.lo);
+        const nonLoD = meals.find((mm) => !mm.retired && mm.s.indexOf("D") >= 0 && !mm.lo && mm.id !== loD.id);
         return { loD: loD.id, loP: loD.p, nonLoD: nonLoD.id, nonLoP: nonLoD.p };
       });
       await seed(page, nw, { pro: [...new Set([ids.loP, ids.nonLoP, "eggs"])], m1D: { id: ids.loD }, m2L: { lo: 1 } });
@@ -189,7 +189,7 @@ try {
       const page = await freshPage(browser);
       const { nw } = await weeks(page);
       const info = await page.evaluate(() => {
-        const m = Object.values(PLAN_DATA.MEALS).find((mm) => mm.s.indexOf("L") >= 0);
+        const m = Object.values(PLAN_DATA.MEALS).find((mm) => !mm.retired && mm.s.indexOf("L") >= 0);
         return { id: m.id, p: m.p };
       });
       await seed(page, nw, { pro: [info.p, "eggs"], m3L: { id: info.id } });

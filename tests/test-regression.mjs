@@ -59,15 +59,15 @@ try {
     await page.evaluate(() => openMealPicker("m3L"));
     await page.waitForSelector(".mp-opt", { timeout: 5000 });
     let ids = await page.evaluate(() => Array.from(document.querySelectorAll('.mp-opt[data-id]')).map((e) => e.getAttribute("data-id")));
-    assert(ids.some((i) => i === "y1" || i === "y2"), "dairy lunch should show before meat dinner: " + ids.join(","));
+    assert(ids.some((i) => i === "r-berry-yogurt-granola-parfait"), "dairy lunch should show before meat dinner: " + ids.join(","));
     await page.evaluate(() => closeMealPicker());
     // dinner picker with a DAIRY lunch today: meat dinners must SHOW
     await seed(page, tw, { pro: ["chicken", "yogurt"], m3L: { id: "y1" } });
     await page.evaluate(() => { render(true); openMealPicker("m3D"); });
     await page.waitForSelector(".mp-opt", { timeout: 5000 });
     ids = await page.evaluate(() => Array.from(document.querySelectorAll('.mp-opt[data-id]')).map((e) => e.getAttribute("data-id")));
-    assert(ids.some((i) => i === "c4" || i === "c1"), "meat dinner should show after dairy lunch: " + ids.join(","));
-    assert(ids.some((i) => i === "y3" || i === "y5" || i === "y6"), "dairy dinner should also show after dairy lunch: " + ids.join(","));
+    assert(ids.some((i) => i === "r-chicken-shawarma-salad"), "meat dinner should show after dairy lunch: " + ids.join(","));
+    assert(ids.some((i) => i === "r-berry-yogurt-granola-parfait"), "dairy dinner should also show after dairy lunch: " + ids.join(","));
     await page.evaluate(() => closeMealPicker());
     // dinner picker with a MEAT lunch today: dairy dinners move to the
     // batch-4 item-3 override section (shown, marked, still pickable)
@@ -79,7 +79,7 @@ try {
       blockedIds: Array.from(document.querySelectorAll('.mp-opt-blocked[data-id]')).map((e) => e.getAttribute("data-id")),
       hint: (document.querySelector(".mp-hint") || {}).textContent || ""
     }));
-    const dairyShown = r.ids.filter((i) => ["y3", "y4", "y5", "y6"].indexOf(i) >= 0);
+    const dairyShown = r.ids.filter((i) => i === "r-berry-yogurt-granola-parfait");
     assert(dairyShown.length > 0, "dairy dinners should show in the override section after meat lunch: " + r.ids.join(","));
     assert(dairyShown.every((i) => r.blockedIds.indexOf(i) >= 0), "every dairy dinner must be marked not-usually-allowed: " + r.blockedIds.join(","));
     assert(/Not usually allowed/.test(r.hint), "hint should explain the override section: " + r.hint);
@@ -110,8 +110,8 @@ try {
     await seed(page, tw, { pro: ["salmon", "chicken"], m2D: { id: "c1" }, m3L: { lo: 1 } });
     await gotoPlan(page, tw, "week");
     await page.evaluate(() => openMealPicker("m2D"));
-    await page.waitForSelector('.mp-opt[data-id="sa3"]', { timeout: 5000 });
-    await page.click('.mp-opt[data-id="sa3"]');
+    await page.waitForSelector('.mp-opt[data-id="r-dry-rub-salmon"]', { timeout: 5000 });
+    await page.click('.mp-opt[data-id="r-dry-rub-salmon"]');
     await wait(300);
     const res = await page.evaluate(() => {
       const cells = planCells(weekSunday(todayStr));

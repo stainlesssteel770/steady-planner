@@ -276,7 +276,9 @@ try {
         let shownLo = 0;
         for (let i = 0; i < 20; i++) {
           // Building mid-week from proteins only: no past dinner exists.
-          const out = ENGINE.generate(ctx, { pro: ["chicken", "salmon", "yogurt", "eggs"] }, Math.random);
+          // v29a: the set needs a lo dinner (gbeef) or no leftovers can
+          // ever be placed from shown days.
+          const out = ENGINE.generate(ctx, { pro: ["chicken", "salmon", "yogurt", "eggs", "gbeef"] }, Math.random);
           ["m1L", "m2L", "m3L"].forEach((k) => { if (out[k] && out[k].lo) bad[k]++; });
           ["m4L", "m5L"].forEach((k) => { if (out[k] && out[k].lo) shownLo++; });
         }

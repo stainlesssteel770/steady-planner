@@ -9,7 +9,8 @@
              v27a1 (Today inline check-in flow) |
              v27a2 (per-meal seconds taps) |
              v27a3 (planned-meal wording) |
-             v27a4 (explicit No grey style + scoring regression)
+             v27a4 (explicit No grey style + scoring regression) |
+             v29a (recipe library: generation uses recipes only, old meals render marked)
    Usage: node test-r14.mjs [section|all]   (WIDTH env, default 390) */
 import puppeteer from "puppeteer-core";
 
@@ -564,7 +565,7 @@ try {
       const page = await freshPage(browser);
       const wk = "2027-08-08"; // Nine Days 2027: Aug 4-12 -> dows 0-4 of this week; Fri Aug 13 (dow 5) is out
       const ctx = engCtx(wk, { nine: { 0: true, 1: true, 2: true, 3: true, 4: true } });
-      const outs = await seededGen(page, ctx, { pro: ["chicken", "stew", "yogurt", "salmon"] }, seeds200);
+      const outs = await seededGen(page, ctx, { pro: ["chicken", "stew", "yogurt", "salmon", "schnitzel"] }, seeds200);
       const res = await page.evaluate((outsIn, c) => {
         const tags = { nineMeat: 0, friMeat: 0, checked: 0 };
         outsIn.forEach((o) => {
@@ -2208,6 +2209,146 @@ try {
       assert(line && line.includes("Leg day"), "review line for Oct 14 should carry its note, got " + JSON.stringify(line));
       await resetDay(page, "2026-10-14");
       await clearFake(page);
+    });
+  }
+  /* ============ v29a: recipe library replaces built-in meals ============ */
+  if (run("v29a")) {
+    const setFake = async (page, fake) => {
+      await page.evaluate((f) => { try { localStorage.setItem("steady.testmode", JSON.stringify({ fake: f, lastSeen: Date.now() })); } catch (e) {} }, fake);
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
+    };
+    const clearFake = async (page) => {
+      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.close();
+    };
+    const click = async (page, sel) => { await page.evaluate((s) => document.querySelector(s).click(), sel); await wait(350); };
+    const SEED_PROS = ["chicken", "gbeef", "gturkey", "schnitzel", "stew", "salmon", "tuna", "whitefish", "eggs", "tofu", "legumes", "yogurt"];
+
+    await test("r14.v29a.generation-uses-recipes-only", async () => {
+      const page = await freshPage(browser);
+      const res = await page.evaluate((mulberrySrc, pros) => {
+        const mulberry = eval(mulberrySrc);
+        const ctx = { week: "2026-10-18", today: "2026-10-18", rest: {}, pre: {} };
+        const RECIPES = PLAN_DATA.RECIPES || {};
+        const byProtein = {};
+        Object.keys(RECIPES).forEach((id) => { const p = RECIPES[id].p; byProtein[p] = (byProtein[p] || 0) + 1; });
+        // candidates() is not exported; generation over seeds is the funnel check.
+        let filled = 0, retiredSeen = [], nonRecipeSeen = [];
+        for (let s = 1; s <= 200; s++) {
+          const out = PLAN_ENGINE.generate(ctx, { pro: pros.slice() }, mulberry(s));
+          Object.keys(out).forEach((k) => {
+            const c = out[k];
+            if (c && c.id) {
+              filled++;
+              const m = PLAN_DATA.MEALS[c.id];
+              if (!m) nonRecipeSeen.push(c.id);
+              else if (m.retired) retiredSeen.push(c.id);
+              else if (!RECIPES[c.id]) nonRecipeSeen.push(c.id);
+            }
+          });
+        }
+        const old = PLAN_ENGINE.resolve(ctx, { m0L: { id: "c1" } }, "m0L");
+        return {
+          recipeCount: Object.keys(RECIPES).length,
+          byProtein, filled, retiredSeen: retiredSeen.slice(0, 5), nonRecipeSeen: nonRecipeSeen.slice(0, 5),
+          oldResolves: !!(old && old.meal), oldRetired: !!(old && old.meal && old.meal.retired),
+          oldName: old && old.meal ? old.meal.n : null
+        };
+      }, MULBERRY, SEED_PROS);
+      assert(res.recipeCount === 12, "seed set must be 12 recipes, got " + res.recipeCount);
+      assert(res.byProtein.yogurt === 1 && res.byProtein.deli === undefined,
+        "yogurt must have its seed recipe (Tab: one per category), deli still a flagged gap, got " + JSON.stringify(res.byProtein));
+      assert(res.filled >= 200, "generated weeks must fill slots, got " + res.filled);
+      assert(res.retiredSeen.length === 0, "generation must never return a retired meal, got " + JSON.stringify(res.retiredSeen));
+      assert(res.nonRecipeSeen.length === 0, "generation must return recipe ids only, got " + JSON.stringify(res.nonRecipeSeen));
+      assert(res.oldResolves && res.oldRetired, "saved old weeks must still resolve, marked retired, got " + JSON.stringify(res));
+      await page.close();
+    });
+
+    await test("r14.v29a.old-meal-mark-and-recipe-card", async () => {
+      const page = await freshPage(browser);
+      const tw = await page.evaluate(() => {
+        const tw = addDays(weekSunday(todayStr), 7);
+        state.plans[tw] = { f: {
+          pro: { v: ["chicken", "eggs"], ts: 1000 },
+          m0L: { v: { id: "c1" }, ts: 1000 },
+          m0D: { v: { id: "r-shakshuka-hummus" }, ts: 1000 }
+        } };
+        saveLocal(); ui.tab = "plan"; ui.planWs = tw; ui.planStep = "week"; saveUi(); render(true);
+        return tw;
+      });
+      const cards = await page.evaluate(() => Array.from(document.querySelectorAll(".meal-card")).map((c) => c.textContent.replace(/\s+/g, " ").trim()));
+      const oldCard = cards.find((t) => t.includes("Sheet-pan chicken"));
+      assert(oldCard && oldCard.includes("old meal"), "saved old meal card must carry the old-meal mark, got " + JSON.stringify(cards));
+      const recipeCard = cards.find((t) => t.includes("Shakshuka with Hummus"));
+      assert(recipeCard && recipeCard.includes("serves 4"), "recipe card must show its servings, got " + JSON.stringify(cards));
+      assert(recipeCard && recipeCard.includes("Recipe"), "recipe card must link its recipe, got " + JSON.stringify(cards));
+      await page.evaluate((tw) => { delete state.plans[tw]; saveLocal(); }, tw);
+      await page.close();
+    });
+
+    await test("r14.v29a.picker-excludes-retired", async () => {
+      const page = await freshPage(browser);
+      const tw = await page.evaluate(() => {
+        const tw = addDays(weekSunday(todayStr), 7);
+        state.plans[tw] = { f: {
+          pro: { v: ["chicken", "salmon"], ts: 1000 },
+          m0L: { v: { id: "r-chicken-shawarma-salad" }, ts: 1000 }
+        } };
+        saveLocal(); ui.tab = "plan"; ui.planWs = tw; ui.planStep = "week"; saveUi(); render(true);
+        return tw;
+      });
+      await click(page, '.meal-card[data-act="meal-pick"]');
+      const opts = await page.evaluate(() => Array.from(document.querySelectorAll("#mpList .mp-opt[data-id]")).map((b) => ({ id: b.getAttribute("data-id"), retired: PLAN_DATA.MEALS[b.getAttribute("data-id")].retired })));
+      const ids = opts.map((o) => o.id);
+      assert(ids.length === 2, "picker for chicken+salmon should list exactly the 2 seed recipes, got " + JSON.stringify(ids));
+      assert(ids.includes("r-chicken-shawarma-salad") && ids.includes("r-dry-rub-salmon"),
+        "picker must list recipes, got " + JSON.stringify(ids));
+      assert(!ids.includes("c1") && opts.every((o) => !o.retired),
+        "picker must never list a retired meal, got " + JSON.stringify(opts));
+      await page.evaluate(() => { const d = document.getElementById("mealPickerDlg"); if (d && d.open) d.close(); });
+      await page.evaluate((tw) => { delete state.plans[tw]; saveLocal(); }, tw);
+      await page.close();
+    });
+
+    await test("r14.v29a.shopping-two-person-recipe-week", async () => {
+      const page = await freshPage(browser);
+      const res = await page.evaluate(() => {
+        const ctx = { week: "2026-10-18", today: "2026-10-18", rest: {}, pre: {} };
+        const cells = { pro: ["eggs", "legumes"], bk: [], srvL: 2, srvD: 2,
+          m0L: { id: "r-mujadara" }, m0D: { id: "r-shakshuka-hummus" } };
+        const shop = PLAN_ENGINE.shopping(ctx, cells);
+        const line = (id) => {
+          for (const sec of shop.sections) for (const l of sec.lines) if (l.id === id) return l;
+          return null;
+        };
+        return { eggs: line("eggs"), lentils: line("lentils") };
+      });
+      assert(res.eggs && res.eggs.amount === 3 && res.eggs.qty === "6 eggs",
+        "2-person shakshuka week must total 3 eggs (shown as 6), got " + JSON.stringify(res.eggs));
+      assert(res.lentils && Math.abs(res.lentils.amount - 0.3) < 0.01,
+        "2-person mujadara week must total 0.3 lentils (1 cup / 7 servings = 0.15/person x 2), got " + JSON.stringify(res.lentils));
+      await page.close();
+    });
+
+    await test("r14.v29a.prep-attaches-protein-component", async () => {
+      const page = await freshPage(browser);
+      const res = await page.evaluate(() => {
+        const ctx = { week: "2026-10-18", today: "2026-10-18", rest: {}, pre: {} };
+        const chickenPrep = PLAN_DATA.MEALS["r-chicken-shawarma-salad"].prep || [];
+        const salmonPrep = PLAN_DATA.MEALS["r-dry-rub-salmon"].prep || [];
+        const prep = PLAN_ENGINE.prep(ctx, { pro: ["chicken"], bk: [], m0D: { id: "r-chicken-shawarma-salad" } }, 0);
+        return {
+          chickenPrep, salmonPrep,
+          stepTitles: (prep.steps || []).map((s) => s.title)
+        };
+      });
+      assert(res.chickenPrep.includes("chicken"), "chicken recipe must carry its protein COMP component, got " + JSON.stringify(res.chickenPrep));
+      assert(res.salmonPrep.length === 0, "salmon has no same-named COMP, so its recipe carries no prep component, got " + JSON.stringify(res.salmonPrep));
+      assert(res.stepTitles.includes("Chicken"), "prep timeline for a chicken recipe week must include the Chicken step, got " + JSON.stringify(res.stepTitles));
+      await page.close();
     });
   }
 } finally {

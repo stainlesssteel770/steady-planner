@@ -61,17 +61,17 @@ try {
   if (run("b1")) await test("r3.b1.minutes-visible-360", async () => {
     const page = await freshPage(browser, 360, 740);
     const { tw } = await weeks(page);
-    await seed(page, tw, { pro: ["salmon", "chicken"] });
+    await seed(page, tw, { pro: ["salmon", "chicken", "tuna"] });
     await gotoPlan(page, tw, "week");
     await page.evaluate(() => openMealPicker("m3L"));
-    await page.waitForSelector('.mp-opt[data-id="sa2"]', { timeout: 5000 });
+    await page.waitForSelector('.mp-opt[data-id="r-provencal-tuna"]', { timeout: 5000 });
     const res = await page.evaluate(() => {
-      const row = document.querySelector('.mp-opt[data-id="sa2"]');
+      const row = document.querySelector('.mp-opt[data-id="r-provencal-tuna"]');
       const min = row.querySelector(".mp-min");
       const rb = row.getBoundingClientRect(), mb = min.getBoundingClientRect();
       return { flags: row.querySelectorAll(".mp-flag").length, rowL: rb.left, rowR: rb.right, minL: mb.left, minR: mb.right, minW: mb.width, vw: window.innerWidth, scrollW: row.scrollWidth, clientW: row.clientWidth };
     });
-    assert(res.flags >= 1, "expected flag pills on salmon row, got " + JSON.stringify(res));
+    assert(res.flags >= 1, "expected flag pills on tuna row, got " + JSON.stringify(res));
     assert(res.minW > 0 && res.minR <= res.rowR + 0.6 && res.minR <= res.vw && res.minL >= res.rowL - 0.6,
       "minutes column squeezed off row: " + JSON.stringify(res));
     await page.close();
@@ -169,8 +169,8 @@ try {
     await seed(page, tw, { pro: ["chicken", "yogurt", "eggs"], m3L: { lo: 1 }, m3D: { id: "y4" } });
     await gotoPlan(page, tw, "week");
     await page.evaluate(() => openMealPicker("m2D"));
-    await page.waitForSelector('.mp-opt[data-id="c1"]', { timeout: 5000 });
-    await page.click('.mp-opt[data-id="c1"]');
+    await page.waitForSelector('.mp-opt[data-id="r-chicken-shawarma-salad"]', { timeout: 5000 });
+    await page.click('.mp-opt[data-id="r-chicken-shawarma-salad"]');
     await wait(300);
     const res = await page.evaluate(() => {
       const cells = planCells(weekSunday(todayStr));
@@ -178,7 +178,7 @@ try {
       const toast = document.querySelector(".undo-toast");
       return { m2D: cells.m2D || null, m3L: v || null, tag: v && v.id ? PLAN_DATA.MEALS[v.id].t : null, span: toast && toast.querySelector("span") ? toast.querySelector("span").textContent : null, btn: toast ? !!toast.querySelector("button") : false, day: PLAN_ENGINE.DAYN[2] };
     });
-    assert(res.m2D && res.m2D.id === "c1", "dinner pick should have landed: " + JSON.stringify(res));
+    assert(res.m2D && res.m2D.id === "r-chicken-shawarma-salad", "dinner pick should have landed: " + JSON.stringify(res));
     assert(res.m3L && res.m3L.id && res.tag !== "M", "tomorrow's lunch should be re-picked (not meat leftovers): " + JSON.stringify(res));
     assert(res.span && res.span.indexOf("Changed " + res.day + " dinner.") === 0 && res.btn, "expected the Undo toast for the dinner pick: " + JSON.stringify(res));
     await page.close();

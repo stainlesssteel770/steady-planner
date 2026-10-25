@@ -1,7 +1,7 @@
 import { launch, seed, openPicker, planWeekCells, weekKeys, C, sleep, makeReporter } from "./r2help.mjs";
 const { check, done } = makeReporter();
 const { nextSun } = weekKeys();
-const PRO = C(["chicken", "salmon", "yogurt", "eggs"]);
+const PRO = C(["chicken", "salmon", "yogurt", "eggs", "gbeef"]);
 const base = { pro: PRO };
 const uiWeek = { tab: "plan", planStep: "week", planWs: nextSun };
 
@@ -23,7 +23,7 @@ check("A picker opens", pk.open);
 // not just at the start — the tag pill has always prefixed picker rows.
 check("A meat Leftovers row offered only in override section", pk.blocked.some(r => r.includes("Leftovers:")) && !pk.normal.some(r => r.includes("Leftovers:")), pk.blocked.join(" | "));
 check("A meat library lunches shown only in override section", !pk.normal.some(r => /Chicken|shawarma/i.test(r) && !r.startsWith("Leftovers")) && pk.blocked.some(r => /Chicken|shawarma/i.test(r)), pk.blocked.slice(0, 3).join(" | "));
-check("A dairy lunch shown", pk.rows.some(r => /Cottage cheese bowl/.test(r)), pk.rows.join(" | "));
+check("A dairy lunch shown", pk.rows.some(r => /Parfait/.test(r)), pk.rows.join(" | "));
 check("A hint mentions dairy dinner", /dairy dinner/.test(pk.hint), pk.hint);
 await page.keyboard.press("Escape"); await sleep(300);
 check("A Esc closes picker", await page.evaluate(() => !document.getElementById("mealPickerDlg").open));
@@ -31,22 +31,22 @@ check("A Esc closes picker", await page.evaluate(() => !document.getElementById(
 // B: meat dinner Monday -> dairy lunch VISIBLE (planner allows dairy lunch + meat dinner)
 await scenario({ m1D: C({ id: "c2" }), m1L: C({ id: "c3" }) });
 pk = await openPicker(page, "m1L");
-check("B dairy lunch shown before meat dinner", pk.rows.some(r => /Cottage cheese bowl/.test(r)), pk.rows.join(" | "));
+check("B dairy lunch shown before meat dinner", pk.rows.some(r => /Parfait/.test(r)), pk.rows.join(" | "));
 check("B no dairy-dinner hint (dairy lunch not blocked)", !/dairy dinner/.test(pk.hint), pk.hint || "(no hint)");
 await page.evaluate(() => document.getElementById("mpClose").click()); await sleep(300);
 
 // C: dairy lunch -> dinner picker SHOWS meat dinners
 await scenario({ m2L: C({ id: "y1" }), m2D: C({ id: "y3" }) });
 pk = await openPicker(page, "m2D");
-check("C meat dinners shown after dairy lunch", pk.rows.some(r => /Sheet-pan chicken/.test(r)), pk.rows.slice(0, 5).join(" | "));
+check("C meat dinners shown after dairy lunch", pk.rows.some(r => /Shawarma/.test(r)), pk.rows.slice(0, 5).join(" | "));
 await page.evaluate(() => document.getElementById("mpClose").click()); await sleep(300);
 
 // D: meat lunch -> dinner picker hides dairy dinners, hint explains
 await scenario({ m2L: C({ id: "c3" }), m2D: C({ id: "c1" }) });
 pk = await openPicker(page, "m2D");
-check("D dairy dinners shown only in override section", !pk.normal.some(r => /Loaded baked potato|Pita pizzas/.test(r)) && pk.blocked.some(r => /Loaded baked potato|Pita pizzas/.test(r)), pk.blocked.join(" | "));
+check("D dairy dinners shown only in override section", !pk.normal.some(r => /Parfait/.test(r)) && pk.blocked.some(r => /Parfait/.test(r)), pk.blocked.join(" | "));
 check("D hint mentions meat lunch", /lunch today is meat/.test(pk.hint), pk.hint);
-check("D meat dinners still shown", pk.rows.some(r => /Sheet-pan chicken/.test(r)));
+check("D meat dinners still shown", pk.rows.some(r => /Shawarma/.test(r)));
 await page.evaluate(() => document.getElementById("mpClose").click()); await sleep(300);
 
 // E: fish and meat on the same DAY are allowed (Beta batch 1 item 4,
@@ -89,7 +89,7 @@ await scenario({ m1D: C({ id: "c1" }), m2L: C({ lo: 1 }) });
 pk = await openPicker(page, "m1D");
 check("Bug6 picker for dinner opens", pk.open && pk.rows.some(r => /salmon/i.test(r)), pk.rows.slice(0, 3).join(" | "));
 await page.evaluate(() => {
-  const row = [...document.querySelectorAll("#mpList .mp-opt")].find(e => /Sheet-pan salmon/.test(e.textContent));
+  const row = [...document.querySelectorAll("#mpList .mp-opt")].find(e => /Dry Rubbed Roasted Salmon/.test(e.textContent));
   row.click();
 });
 await sleep(500);
@@ -102,7 +102,7 @@ check("Bug6 lunch replaced + Undo offered", toastInfo.span.indexOf("Changed " + 
 await scenario({ m1D: C({ id: "sa3" }), m2L: C({ lo: 1 }) });
 await openPicker(page, "m1D");
 await page.evaluate(() => {
-  const row = [...document.querySelectorAll("#mpList .mp-opt")].find(e => /Sheet-pan chicken/.test(e.textContent));
+  const row = [...document.querySelectorAll("#mpList .mp-opt")].find(e => /Grandma's Meatballs/.test(e.textContent));
   row.click();
 });
 await sleep(500);

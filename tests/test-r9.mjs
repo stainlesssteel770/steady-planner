@@ -140,7 +140,7 @@ try {
     await test("r9.note.locked-tomorrow-lunch-on-dice-toast", async () => {
       const page = await freshPage(browser);
       const nw = await nextWeek(page);
-      await seed(page, nw, { pro: ["chicken", "salmon", "yogurt"], m1D: { id: "c1" }, m2L: { lo: 1, k: 1 }, m2D: { id: "y3" } });
+      await seed(page, nw, { pro: ["chicken", "salmon", "yogurt", "gbeef"], m1D: { id: "c1" }, m2L: { lo: 1, k: 1 }, m2D: { id: "y3" } });
       await gotoPlan(page, nw, "week");
       await wait(200);
       const NOTE = "Tuesday's lunch is locked as leftovers — check it.";

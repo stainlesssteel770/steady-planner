@@ -225,8 +225,8 @@ try {
     const page = await freshPage(browser);
     const info = await page.evaluate(() => {
       const meals = Object.values(PLAN_DATA.MEALS);
-      const both = meals.find((mm) => mm.s.indexOf("L") >= 0 && mm.lo && mm.fresh);
-      const loOnly = meals.find((mm) => mm.s.indexOf("L") >= 0 && mm.lo && !mm.fresh && mm.id !== both.id);
+      const both = meals.find((mm) => !mm.retired && mm.s.indexOf("L") >= 0 && mm.lo && mm.fresh);
+      const loOnly = meals.find((mm) => !mm.retired && mm.s.indexOf("L") >= 0 && mm.lo && !mm.fresh && mm.id !== both.id);
       return { both: { id: both.id, p: both.p }, loOnly: { id: loOnly.id, p: loOnly.p } };
     });
     const { tw } = await weeks(page);

@@ -167,7 +167,7 @@ try {
     await test("r8.dice.forward-ui-meat-lo-before-dairy", async () => {
       const page = await freshPage(browser);
       const { nw } = await weeks(page);
-      await seed(page, nw, { pro: ["chicken", "salmon", "yogurt"], m1D: { id: "c1" }, m2L: { lo: 1 }, m2D: { id: "y3" } });
+      await seed(page, nw, { pro: ["chicken", "salmon", "yogurt", "gbeef"], m1D: { id: "c1" }, m2L: { lo: 1 }, m2D: { id: "y3" } });
       await gotoPlan(page, nw, "week");
       await wait(200);
       let landed = 0, suffixSeen = false;

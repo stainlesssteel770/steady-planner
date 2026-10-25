@@ -38,15 +38,19 @@ try {
       var MEALS = PLAN_DATA.MEALS;
       var COMP = PLAN_DATA.COMP;
       var hands = function (mm) { var t = 0; (mm.prep || []).forEach(function (k) { var c = COMP[k]; if (c && c.a) t += c.a; }); return t; };
+      /* v29a P1: the checker must count longs the way the engine does —
+         total time for recipes, hands-on for built-ins. */
+      var isLong = function (mm) { return mm.recipe ? mm.min >= 30 : hands(mm) >= 30; };
       var lunchIds = Object.keys(MEALS).filter(function (id) {
-        return pros.indexOf(MEALS[id].p) >= 0 && MEALS[id].s.indexOf("L") >= 0;
+        /* v29a: retired meals are not candidates, so they are not "unused lunches" either. */
+        return !MEALS[id].retired && pros.indexOf(MEALS[id].p) >= 0 && MEALS[id].s.indexOf("L") >= 0;
       });
       var usedAll = {};
       var longTotal = 0;
       for (var d = 0; d <= 5; d++) {
         ["L", "D"].forEach(function (sl) {
           var c = out["m" + d + sl];
-          if (c && c.id) { usedAll[c.id] = true; if (hands(MEALS[c.id]) >= 30) longTotal++; }
+          if (c && c.id) { usedAll[c.id] = true; if (isLong(MEALS[c.id])) longTotal++; }
         });
       }
       var bad = [];
@@ -65,7 +69,7 @@ try {
             if (usedAll[id]) return false;
             var mm = MEALS[id];
             if (dinnerMeal && dinnerMeal.t === "D" && mm.t === "M") return false; // meat before dairy
-            if (longTotal >= 2 && hands(mm) >= 30) return false; // long-meal cap spent (hands-on, batch 4 item 5)
+            if (longTotal >= 2 && isLong(mm)) return false; // long-meal cap spent (v29a P1: total time for recipes)
             return true;
           });
           if (alt) bad.push({ day: d2, id: meal.id });
@@ -121,33 +125,41 @@ try {
       const page = await freshPage(browser);
       const res = await page.evaluate(() => {
         const MEALS = PLAN_DATA.MEALS;
-        const lunchIdsOf = (p) => Object.keys(MEALS).filter((id) => MEALS[id].p === p && MEALS[id].s.indexOf("L") >= 0);
-        const salmonL = lunchIdsOf("salmon"), yogurtL = lunchIdsOf("yogurt"), chickenL = lunchIdsOf("chicken");
+        const lunchIdsOf = (p) => Object.keys(MEALS).filter((id) => !MEALS[id].retired && MEALS[id].p === p && MEALS[id].s.indexOf("L") >= 0);
+        const salmonL = lunchIdsOf("salmon"), whitefishL = lunchIdsOf("whitefish"), chickenL = lunchIdsOf("chicken");
         const ctx = { week: "2026-10-18", today: "2026-10-21", rest: {}, pre: {} };
         // Wednesday: tonight's dinner locked = chicken (c1, dinner-only),
-        // last night's = salmon (sa1, dinner-only). Kept protein: yogurt.
-        // `fillers` marks every lunch of the given proteins used — past
-        // lunches Sun-Tue, locked Thu/Fri lunches, then past dinners
-        // (LD meals count once, whichever slot holds them). lo:false
-        // keeps leftover placement out of the scenario.
+        // last night's = salmon (sa1, dinner-only). Kept protein: whitefish.
+        // v29a: the locked dinners stay old dinner-only ids on purpose — a
+        // recipe dinner id would also be a lunch candidate and mark that
+        // recipe used, which would defeat the widen steps. `fillers` marks
+        // every lunch of the given proteins used — past lunches Sun-Tue,
+        // locked Thu/Fri lunches, then past dinners. lo:false keeps
+        // leftover placement out of the scenario.
         const build = (fillers) => {
-          const cells = { pro: ["chicken", "salmon", "yogurt"], lo: false, m2D: { id: "sa1", k: 1 }, m3D: { id: "c1", k: 1 } };
+          const cells = { pro: ["chicken", "salmon", "whitefish"], lo: false, m2D: { id: "sa1", k: 1 }, m3D: { id: "c1", k: 1 } };
           const keys = ["m0L", "m1L", "m2L", "m4L", "m5L", "m0D", "m1D"];
           fillers.forEach((id, i) => {
             const key = keys[i];
             cells[key] = key.slice(-1) === "L" && i >= 3 ? { id, k: 1 } : { id };
           });
+          // v29a: dinners generate before lunches, and every recipe is
+          // LD — an empty Thu dinner would steal the salmon lunch the
+          // widen step needs (the old slot-separated sa1/sa2 equivalent).
+          // Lock it to the non-long parfait: it spends no cap budget and
+          // its protein is outside the widen set.
+          cells.m4D = { id: "r-berry-yogurt-granola-parfait", k: 1 };
           return cells;
         };
-        const out1 = ENGINE.generate(ctx, build(yogurtL), Math.random);
-        const out2 = ENGINE.generate(ctx, build(yogurtL.concat(salmonL)), Math.random);
-        return { m3L_1: out1.m3L, m3L_2: out2.m3L, salmonL, yogurtL, chickenL };
+        const out1 = ENGINE.generate(ctx, build(whitefishL), Math.random);
+        const out2 = ENGINE.generate(ctx, build(whitefishL.concat(salmonL)), Math.random);
+        return { m3L_1: out1.m3L, m3L_2: out2.m3L, salmonL, whitefishL, chickenL };
       });
-      assert(res.salmonL.length === 2 && res.yogurtL.length === 4, "setup inventory changed: " + JSON.stringify({ s: res.salmonL, y: res.yogurtL }));
+      assert(res.salmonL.length === 1 && res.whitefishL.length === 1 && res.chickenL.length === 1, "setup inventory changed: " + JSON.stringify({ s: res.salmonL, w: res.whitefishL, c: res.chickenL }));
       assert(res.m3L_1 && res.salmonL.indexOf(res.m3L_1.id) >= 0,
-        "yogurt used up -> lunch should widen to last night's protein (salmon), got " + JSON.stringify(res.m3L_1));
+        "whitefish used up -> lunch should widen to last night's protein (salmon), got " + JSON.stringify(res.m3L_1));
       assert(res.m3L_2 && res.chickenL.indexOf(res.m3L_2.id) >= 0,
-        "yogurt+salmon used up -> lunch should widen to tonight's protein (chicken), got " + JSON.stringify(res.m3L_2));
+        "whitefish+salmon used up -> lunch should widen to tonight's protein (chicken), got " + JSON.stringify(res.m3L_2));
       await page.close();
     });
 

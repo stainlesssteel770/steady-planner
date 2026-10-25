@@ -196,6 +196,16 @@
     for (var i = 0; i < prep.length; i++) { var c = COMP[prep[i]]; if (c && c.a) t += c.a; }
     return t;
   }
+  /* v29a P1: the long-meal cap counts total time for recipes — their min
+     IS total time, and their prep holds only a thaw component, so handsOn
+     would never reach the threshold. Built-ins keep the hands-on rule,
+     so saved weeks count exactly as before. */
+  function isLong(meal, longMin) {
+    var t = (longMin == null ? 30 : longMin);
+    if (!meal) return false;
+    if (meal.recipe) return meal.min >= t;
+    return handsOn(meal) >= t;
+  }
   function longMinOf(cells) {
     var n = cellVals(cells).longMin;
     return (typeof n === "number" && isFinite(n)) ? Math.max(5, Math.min(120, Math.round(n))) : 30;
@@ -203,10 +213,14 @@
 
   function candidates(P, slotLetter, used, longCount, relaxUsed, relaxLong, longMin) {
     return Object.keys(MEALS).map(function (id) { return MEALS[id]; }).filter(function (meal) {
+      /* v29a: retired built-in meals never appear in generation, shuffle,
+         or replace — candidates() is the funnel for all three. Saved weeks
+         still resolve retired ids through resolve(), not through here. */
+      if (meal.retired) return false;
       if (P.indexOf(meal.p) < 0) return false;
       if (meal.s.indexOf(slotLetter) < 0) return false;
       if (!relaxUsed && used[meal.id]) return false;
-      if (!relaxLong && longCount >= 2 && handsOn(meal) >= (longMin == null ? 30 : longMin)) return false;
+      if (!relaxLong && longCount >= 2 && isLong(meal, longMin)) return false;
       return true;
     });
   }
@@ -236,13 +250,13 @@
            long-meal cap), so mid-week picks avoid repeating it. Only the
            counting happens here; the cells pass through as before. */
         var rp = resolve(ctx, cells, s.key);
-        if (rp && rp.meal) { used[rp.meal.id] = true; if (!rp.lo && handsOn(rp.meal) >= longMinG) longCount++; }
+        if (rp && rp.meal) { used[rp.meal.id] = true; if (!rp.lo && isLong(rp.meal, longMinG)) longCount++; }
         return;
       }
       var raw = v[s.key];
       if (raw && raw.k) {
         var r = resolve(ctx, cells, s.key);
-        if (r && r.meal) { used[r.meal.id] = true; if (!r.lo && handsOn(r.meal) >= longMinG) longCount++; }
+        if (r && r.meal) { used[r.meal.id] = true; if (!r.lo && isLong(r.meal, longMinG)) longCount++; }
       } else { delete out[s.key]; }
     });
     /* Bug-fix batch item 4: slots() yields nothing on a rest day, so the seed
@@ -284,35 +298,46 @@
     function chooseMealInner(slotLetter, proteinOrder, opts, simpleOnly) {
       opts = opts || {};
       var relaxLevels = opts.levels || [[false, false], [true, false], [true, true]];
+      /* v29a: day-rule preferences (break-fast light, pre-fast hearty)
+         must hold across proteins, not just within one. The old
+         per-protein filter-with-fallback let a light-only first protein
+         defeat hearty outright once every protein has a single meal.
+         So per relaxation level, run a strict-preference pass over all
+         proteins first, then the fallback pass at the same level —
+         strictness (used/cap) still dominates preference, but protein
+         order no longer defeats it. preferNotFresh keeps the old shape. */
+      var dayPref = !!(opts.preferLight || opts.preferHearty);
       for (var lvl = 0; lvl < relaxLevels.length; lvl++) {
-        for (var pi = 0; pi < proteinOrder.length; pi++) {
-          var p = proteinOrder[pi];
-          var list = candidates([p], slotLetter, used, longCount, relaxLevels[lvl][0], relaxLevels[lvl][1], longMinG);
-          /* v28c item 3: picky phase — only simple meals are candidates. */
-          if (simpleOnly) list = list.filter(function (mm) { return mm.simple; });
-          if (opts.excludeTag) {
-            /* Bug-fix batch item 11: excludeTag may be a list (a day can carry
-               two hard exclusions at once, e.g. fast-day no-meat plus the
-               locked-lunch dairy block). */
-            var exT = [].concat(opts.excludeTag);
-            var nonTag = list.filter(function (mm) { return exT.indexOf(mm.t) < 0; });
-            if (opts.excludeTagHard || nonTag.length) list = nonTag;
+        var passes = dayPref ? [true, false] : [false];
+        for (var pass = 0; pass < passes.length; pass++) {
+          var strictPref = passes[pass];
+          for (var pi = 0; pi < proteinOrder.length; pi++) {
+            var p = proteinOrder[pi];
+            var list = candidates([p], slotLetter, used, longCount, relaxLevels[lvl][0], relaxLevels[lvl][1], longMinG);
+            /* v28c item 3: picky phase — only simple meals are candidates. */
+            if (simpleOnly) list = list.filter(function (mm) { return mm.simple; });
+            if (opts.excludeTag) {
+              /* Bug-fix batch item 11: excludeTag may be a list (a day can carry
+                 two hard exclusions at once, e.g. fast-day no-meat plus the
+                 locked-lunch dairy block). */
+              var exT = [].concat(opts.excludeTag);
+              var nonTag = list.filter(function (mm) { return exT.indexOf(mm.t) < 0; });
+              if (opts.excludeTagHard || nonTag.length) list = nonTag;
+            }
+            if (opts.preferNotFresh) {
+              var nf = list.filter(function (mm) { return !mm.fresh; });
+              if (nf.length) list = nf;
+            }
+            if (opts.preferLight) {
+              var lt = list.filter(function (mm) { return mm.light; });
+              if (strictPref) list = lt; else if (lt.length) list = lt;
+            }
+            if (opts.preferHearty) {
+              var hv = list.filter(function (mm) { return !mm.light; });
+              if (strictPref) list = hv; else if (hv.length) list = hv;
+            }
+            if (list.length) return pickFrom(list, rand);
           }
-          if (opts.preferNotFresh) {
-            var nf = list.filter(function (mm) { return !mm.fresh; });
-            if (nf.length) list = nf;
-          }
-          /* Bug-fix batch item 11: light/hearty preference, same
-             filter-with-fallback shape as preferNotFresh. */
-          if (opts.preferLight) {
-            var lt = list.filter(function (mm) { return mm.light; });
-            if (lt.length) list = lt;
-          }
-          if (opts.preferHearty) {
-            var hv = list.filter(function (mm) { return !mm.light; });
-            if (hv.length) list = hv;
-          }
-          if (list.length) return pickFrom(list, rand);
         }
       }
       return null;
@@ -345,6 +370,14 @@
         order.push(p);
       }
       if (!order.length) order = rotation.slice();
+      /* v29a P1: when the long cap is already spent, the rotation's skip
+         of last night's protein can strand the loop with only long
+         proteins — relaxation would then place a 3rd long. Offer last
+         night's protein back last, so variety still wins whenever any
+         other non-long dinner passes; the cap, a hard limit, wins over
+         the rotation preference. Rotation membership required: a
+         deselected protein's locked dinner must not pull it back in. */
+      if (longCount >= 2 && prevP && rotation.indexOf(prevP) >= 0 && order.indexOf(prevP) < 0) order.push(prevP);
       /* Bug-fix batch item 1: a locked meat lunch constrains the dinner pass.
          "Shuffle all unlocked" runs dinners first with no constraint, so a
          locked meat lunch could end up under a dairy dinner (~1/4 of rebuilds).
@@ -373,7 +406,7 @@
         if (ctx.picky && !meal.simple) dcell.fb = 1;
         out[s.key] = dcell;
         used[meal.id] = true;
-        if (handsOn(meal) >= longMinG) longCount++;
+        if (isLong(meal, longMinG)) longCount++;
         rotIdx = (rotation.indexOf(meal.p) + 1) % rotation.length;
       }
     });
@@ -411,6 +444,15 @@
       if (!order.length) order = rotation.slice();
       // offset the lunch rotation from the dinners
       if (order.length > 1) { var sh = (rotIdx + d) % order.length; order = order.slice(sh).concat(order.slice(0, sh)); }
+      /* v29a P1 (same as the dinner pass): when the long cap is spent,
+         offer the avoided dinner proteins back last, so a non-long lunch
+         repeat beats a 3rd long via relaxation. Rotation membership
+         required, same as the widen steps: a deselected protein's
+         locked dinner must not pull its lunches back in. */
+      if (longCount >= 2) {
+        if (tonightMeal && rotation.indexOf(tonightMeal.p) >= 0 && order.indexOf(tonightMeal.p) < 0) order.push(tonightMeal.p);
+        if (prevMeal && rotation.indexOf(prevMeal.p) >= 0 && order.indexOf(prevMeal.p) < 0) order.push(prevMeal.p);
+      }
       var dairyDinner = !!(tonightMeal && tonightMeal.t === "D") && !mdGapOn;
       var lopts = {
         excludeTag: dairyDinner ? "M" : null,
@@ -455,7 +497,7 @@
         // existed that passes the hard rules (the batch-3 definition).
         meal = chooseMeal("L", rotation, lopts);
       }
-      if (meal) { var lcell = { id: meal.id }; if (ctx.picky && !meal.simple) lcell.fb = 1; out[s.key] = lcell; used[meal.id] = true; if (handsOn(meal) >= longMinG) longCount++; }
+      if (meal) { var lcell = { id: meal.id }; if (ctx.picky && !meal.simple) lcell.fb = 1; out[s.key] = lcell; used[meal.id] = true; if (isLong(meal, longMinG)) longCount++; }
     });
     if (!out.bk) {
       /* v28a item 1 (ruling A1): the default breakfast pair respects
@@ -843,7 +885,7 @@
     breakfastExcluded: breakfastExcluded,
     shopping: shopping, prep: prep, qtyText: qtyText, frac: frac, dur: dur, clock: clock,
     proteinsOf: proteinsOf, servingsOf: servingsOf, addDays: addDays, dowOf: dowOf, cellVals: cellVals,
-    handsOn: handsOn, longMinOf: longMinOf,
+    handsOn: handsOn, isLong: isLong, longMinOf: longMinOf,
     DAYN: DAYN, DAY3: DAY3
   };
 })(typeof window !== "undefined" ? window : globalThis);
