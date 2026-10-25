@@ -1,7 +1,7 @@
 import { launch, seed, openPicker, planWeekCells, weekKeys, C, sleep, makeReporter } from "./r2help.mjs";
 const { check, done } = makeReporter();
 const { nextSun } = weekKeys();
-const PRO = C(["chicken", "salmon", "yogurt", "eggs", "gbeef"]);
+const PRO = C(["chicken", "salmon", "yogurt", "eggs", "gbeef", "tuna"]);
 const base = { pro: PRO };
 const uiWeek = { tab: "plan", planStep: "week", planWs: nextSun };
 
@@ -53,12 +53,12 @@ await page.evaluate(() => document.getElementById("mpClose").click()); await sle
 // user-approved rewrite) — only meat/dairy is blocked, never fish/meat.
 await scenario({ m3D: C({ id: "c1" }), m3L: C({ id: "e4" }) });
 pk = await openPicker(page, "m3L");
-check("E fish lunch shown on meat-dinner day", pk.rows.some(r => /Salmon over greens/.test(r)), pk.rows.join(" | "));
+check("E fish lunch shown on meat-dinner day", pk.rows.some(r => /Dry Rubbed Roasted Salmon/.test(r)), pk.rows.join(" | "));
 check("E no fish+meat hint", !/Fish and meat/.test(pk.hint), pk.hint);
 await page.evaluate(() => document.getElementById("mpClose").click()); await sleep(300);
 await scenario({ m3D: C({ id: "sa1" }), m3L: C({ id: "e4" }) });
 pk = await openPicker(page, "m3L");
-check("E2 meat lunch shown on fish-dinner day", pk.rows.some(r => /Chicken hummus wrap/.test(r)), pk.rows.join(" | "));
+check("E2 meat lunch shown on fish-dinner day", pk.rows.some(r => /Shawarma/.test(r)), pk.rows.join(" | "));
 await page.evaluate(() => document.getElementById("mpClose").click()); await sleep(300);
 
 // Add 2: picker row flags

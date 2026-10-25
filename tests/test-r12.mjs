@@ -137,7 +137,13 @@ try {
         // locked Thu/Fri lunches, then past dinners. lo:false keeps
         // leftover placement out of the scenario.
         const build = (fillers) => {
-          const cells = { pro: ["chicken", "salmon", "whitefish"], lo: false, m2D: { id: "sa1", k: 1 }, m3D: { id: "c1", k: 1 } };
+          // longMin 60 isolates the widen mechanism under test: in the
+          // recipe era all three lunches are total-time-long (35/50/55),
+          // so at the default 30 the past lunches spend the cap and the
+          // fallback — shuffled rotation, random by design — decides the
+          // lunch instead of the widen steps. At 60 nothing here is long,
+          // so strict/b1/b2 decide deterministically.
+          const cells = { pro: ["chicken", "salmon", "whitefish"], lo: false, longMin: 60, m2D: { id: "sa1", k: 1 }, m3D: { id: "c1", k: 1 } };
           const keys = ["m0L", "m1L", "m2L", "m4L", "m5L", "m0D", "m1D"];
           fillers.forEach((id, i) => {
             const key = keys[i];
