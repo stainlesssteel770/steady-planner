@@ -973,8 +973,11 @@ try {
       const core = thawText1.replace(/^❄\s*/, "").replace(/^Tonight: move /, "Move ");
       assert(planThaws.rows.some((r) => r.indexOf(core) >= 0), "the Plan tab's Thaw reminders should list the same thaw as Today's Tonight line ('" + core + "'), rows: " + JSON.stringify(planThaws.rows));
       assert(!planThaws.rows.some((r) => r.indexOf("Monday") >= 0), "the Plan tab should list no Monday thaw (agreeing with Today on prep day)");
-      // Clean up the fake so later sections see the real date.
-      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+      // Clean up the fake so later sections see the real date, and delete
+      // the seeded week plan: meal wording (v27a item 3) makes plan state
+      // visible on Today, so a leaked plan would rewrite later sections'
+      // expected question texts.
+      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} try { delete state.plans["2026-10-18"]; saveLocal(); } catch (e) {} });
       await page.reload({ waitUntil: "networkidle0" });
       await page.close();
     });
@@ -1434,6 +1437,8 @@ try {
       });
       assert(fb.proteinL === "Protein at lunch?" && fb.proteinD === "Protein at dinner?",
         "without a plan the meal questions fall back to generic wording, got: " + JSON.stringify({ l: fb.proteinL, d: fb.proteinD }));
+      // Clean up the seeded week plan so later sections see generic wording.
+      await page.evaluate(() => { try { delete state.plans["2026-10-18"]; saveLocal(); } catch (e) {} });
       await clearFake(page);
     });
   }
