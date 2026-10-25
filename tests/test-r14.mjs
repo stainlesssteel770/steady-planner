@@ -283,9 +283,9 @@ try {
       await page.reload({ waitUntil: "networkidle0" });
       await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
       await page.evaluate(() => {
-        // Seed everything answered except drinks, so the flow opens on it.
+        // Seed everything answered except noAlcohol, so the flow opens on it.
         const f = {};
-        ["proteinB", "proteinL", "proteinD", "vegL", "vegD", "mealsPlan", "treat", "kitchenClosed", "noAlcohol", "workoutOff", "bed"].forEach((k) => { f[k] = { v: true, ts: 1 }; });
+        ["proteinB", "proteinL", "proteinD", "vegL", "vegD", "mealsPlan", "treat", "kitchenClosed", "workoutOff", "bed"].forEach((k) => { f[k] = { v: true, ts: 1 }; });
         f.steps = { v: 9000, ts: 1 };
         state.days["2026-10-21"] = { f };
         saveLocal(); try { delete ui.checkin; } catch (e) {}
@@ -300,8 +300,8 @@ try {
         };
         ui.tab = "today"; saveUi(); render(true);
       });
-      // A real edit through a real control: answer the drinks question Yes.
-      // (The "drinks" question is used because no day rule ever removes it.)
+      // A real edit through a real control: answer the noAlcohol question Yes.
+      // (The "noAlcohol" question is used because no day rule ever removes it.)
       await page.waitForSelector('[data-act="checkin-yes"]', { timeout: 15000 });
       await page.evaluate(() => document.querySelector('[data-act="checkin-yes"]').click());
       await wait(500);
@@ -788,15 +788,16 @@ try {
       assert(res.contents[2] && res.contents[2].length === 3, "Body holds three habits, got: " + JSON.stringify(res.contents[2]));
       assert(res.habitRows === 10, "all 10 habit rows render, got " + res.habitRows);
       assert(JSON.stringify(res.nums) === JSON.stringify(["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]), "numbering runs 1-10 across the groups, got: " + JSON.stringify(res.nums));
-      // One tick per group still works end-to-end. (Assert each flag FLIPS:
-      // the shared profile may legitimately start with a tick already on.)
-      const before = await page.evaluate(() => ({ p: !!getDayF(todayStr, "proteinB"), d: !!getDayF(todayStr, "drinks"), w: !!getDayF(todayStr, "workoutOff") }));
+      // One control per group still works end-to-end. (Assert each flag FLIPS,
+      // and Drinks water rises by exactly one; the shared profile may
+      // legitimately start with a tick already on.)
+      const before = await page.evaluate(() => ({ p: !!getDayF(todayStr, "proteinB"), water: getDayF(todayStr, "water"), w: !!getDayF(todayStr, "workoutOff") }));
       await page.evaluate(() => document.querySelector('[data-act="tick"][data-f="proteinB"]').click());
-      await page.evaluate(() => document.querySelector('[data-act="tick"][data-f="drinks"]').click());
+      await page.evaluate(() => document.querySelector('[data-act="water-plus"]').click());
       await page.evaluate(() => document.querySelector('[data-act="tick"][data-f="workoutOff"]').click());
       await wait(300);
-      const flags = await page.evaluate(() => ({ p: !!getDayF(todayStr, "proteinB"), d: !!getDayF(todayStr, "drinks"), w: !!getDayF(todayStr, "workoutOff") }));
-      assert(flags.p === !before.p && flags.d === !before.d && flags.w === !before.w, "ticks in all three groups should toggle, before: " + JSON.stringify(before) + " after: " + JSON.stringify(flags));
+      const flags = await page.evaluate(() => ({ p: !!getDayF(todayStr, "proteinB"), water: getDayF(todayStr, "water"), w: !!getDayF(todayStr, "workoutOff") }));
+      assert(flags.p === !before.p && flags.w === !before.w && flags.water === (before.water || 0) + 1, "controls in all three groups should toggle, before: " + JSON.stringify(before) + " after: " + JSON.stringify(flags));
       await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
       await page.reload({ waitUntil: "networkidle0" });
       await page.close();
@@ -1162,7 +1163,7 @@ try {
       let s = await flowState(page);
       assert(s.card, "today with unanswered questions should show the inline question card, got " + JSON.stringify(s));
       assert(s.q === "Protein at breakfast?", "first question should be breakfast protein, got " + JSON.stringify(s.q));
-      assert(s.prog === "1 of 13", "progress should be 1 of 13 on a plain day, got " + JSON.stringify(s.prog));
+      assert(s.prog === "1 of 12", "progress should be 1 of 12 on a plain day, got " + JSON.stringify(s.prog));
       assert(s.skip && s.yes && s.no, "Q1 needs Yes/No/Skip");
       assert(!s.back, "Q1 must show Skip only, no Back");
       assert(!s.forwardBtn, "Forward must not appear during today's active flow");
@@ -1170,17 +1171,17 @@ try {
       // Yes advances to Q2 with Back.
       await click(page, '[data-act="checkin-yes"]');
       s = await flowState(page);
-      assert(s.q === "Protein at lunch?" && s.prog === "2 of 13", "Yes should advance to Q2, got " + JSON.stringify(s));
+      assert(s.q === "Protein at lunch?" && s.prog === "2 of 12", "Yes should advance to Q2, got " + JSON.stringify(s));
       assert(s.back, "Q2 onward must show Back");
       // Back returns to Q1; Skip it; Q2 again.
       await click(page, '[data-act="checkin-back"]');
       s = await flowState(page);
-      assert(s.q === "Protein at breakfast?" && s.prog === "1 of 13", "Back should return to Q1, got " + JSON.stringify(s));
+      assert(s.q === "Protein at breakfast?" && s.prog === "1 of 12", "Back should return to Q1, got " + JSON.stringify(s));
       await click(page, '[data-act="checkin-skip"]');
       s = await flowState(page);
       assert(s.q === "Protein at lunch?", "Skip should move to Q2, got " + JSON.stringify(s));
       // Answer Q2..Q13 Yes (12 clicks): the loop must return to skipped Q1.
-      for (let i = 0; i < 12; i++) await click(page, '[data-act="checkin-yes"]');
+      for (let i = 0; i < 11; i++) await click(page, '[data-act="checkin-yes"]');
       s = await flowState(page);
       assert(s.card && s.q === "Protein at breakfast?", "after the last question the loop must return to skipped Q1, got " + JSON.stringify(s));
       // Answer looped Q1: completed state.
@@ -1188,6 +1189,9 @@ try {
       s = await flowState(page);
       assert(!s.card && s.habits, "after the loop the checklist should show, got " + JSON.stringify(s));
       assert(s.checkinBtn && s.forwardBtn, "completed today needs Check-in + Forward buttons");
+      // v27b2: the flow no longer asks drinks, so a full day needs the
+      // water counter at goal before it can score 10/10.
+      for (let i = 0; i < 8; i++) await click(page, '[data-act="water-plus"]');
       const done = await page.evaluate(() => {
         const sc = scoreDay("2026-10-21");
         const banner = document.querySelector(".banner.full");
@@ -1207,8 +1211,8 @@ try {
       const page = await freshPage(browser);
       await setFake(page, "2026-10-21");
       await resetDay(page, "2026-10-21");
-      for (let i = 0; i < 12; i++) await click(page, '[data-act="checkin-yes"]');
-      // Q13 (bed): skip, loop back, skip again -> completed with bed unanswered.
+      for (let i = 0; i < 11; i++) await click(page, '[data-act="checkin-yes"]');
+      // Q12 (bed): skip, loop back, skip again -> completed with bed unanswered.
       await click(page, '[data-act="checkin-skip"]');
       let s = await flowState(page);
       assert(s.card && s.q === "In bed by midnight?", "loop should return to skipped bed question, got " + JSON.stringify(s));
@@ -1216,7 +1220,7 @@ try {
       s = await flowState(page);
       assert(!s.card && s.habits, "after the second skip the checklist should show");
       const sc = await page.evaluate(() => { const r = scoreDay("2026-10-21"); return { score: r.score, of: r.of, bed: getDayF("2026-10-21", "bed") }; });
-      assert(sc.score === 9 && sc.bed === undefined, "twice-skipped bed stays unanswered at 9/10, got " + JSON.stringify(sc));
+      assert(sc.score === 8 && sc.bed === undefined, "twice-skipped bed stays unanswered at 8/10 (drinks, no longer asked, is also unanswered), got " + JSON.stringify(sc));
       await click(page, '[data-act="checkin-open"]');
       s = await flowState(page);
       assert(s.card && s.q === "In bed by midnight?", "Check-in should reopen at the first unanswered question, got " + JSON.stringify(s));
@@ -1252,13 +1256,13 @@ try {
         return { probes, pre: fields("2026-10-23"), fast: fields("2026-12-20"), tisha: fields("2026-07-23") };
       });
       assert(qs.probes.preFri, "2026-10-23 should be a pre-rest Friday, got " + JSON.stringify(qs.probes));
-      assert(JSON.stringify(qs.pre) === JSON.stringify(["proteinB", "proteinL", "vegL", "drinks", "noAlcohol", "steps", "workout"]),
+      assert(JSON.stringify(qs.pre) === JSON.stringify(["proteinB", "proteinL", "vegL", "noAlcohol", "steps", "workout"]),
         "pre-rest questions should be daytime only, got " + JSON.stringify(qs.pre));
       assert(qs.probes.fastSun, "2026-12-20 should be a minor fast day, got " + JSON.stringify(qs.probes));
-      assert(JSON.stringify(qs.fast) === JSON.stringify(["proteinD", "vegD", "treat", "kitchenClosed", "drinks", "noAlcohol", "steps", "bed"]),
+      assert(JSON.stringify(qs.fast) === JSON.stringify(["proteinD", "vegD", "treat", "kitchenClosed", "noAlcohol", "steps", "bed"]),
         "fast-day questions should be dinner + non-meal habits, got " + JSON.stringify(qs.fast));
       assert(qs.probes.tisha, "2026-07-23 should be Tisha B'Av, got " + JSON.stringify(qs.probes));
-      assert(JSON.stringify(qs.tisha) === JSON.stringify(["treat", "kitchenClosed", "drinks", "noAlcohol", "steps", "bed"]),
+      assert(JSON.stringify(qs.tisha) === JSON.stringify(["treat", "kitchenClosed", "noAlcohol", "steps", "bed"]),
         "Tisha B'Av questions should exclude all meal questions, got " + JSON.stringify(qs.tisha));
       await page.close();
     });
@@ -1272,8 +1276,8 @@ try {
         try { delete ui.checkin; } catch (e) {}
         ui.tab = "today"; saveUi(); render(true);
       });
-      // Q1..Q10 Yes -> steps question (Q11).
-      for (let i = 0; i < 10; i++) await click(page, '[data-act="checkin-yes"]');
+      // Q1..Q9 Yes -> steps question (Q10).
+      for (let i = 0; i < 9; i++) await click(page, '[data-act="checkin-yes"]');
       let s = await flowState(page);
       assert(s.q === "Hit your step goal?", "Q11 should be the steps question, got " + JSON.stringify(s));
       await click(page, '[data-act="checkin-no"]');
@@ -1290,7 +1294,7 @@ try {
         "workout No must be an explicit No that does not score, got " + JSON.stringify(w));
       await click(page, '[data-act="checkin-yes"]'); // bed
       const fin = await page.evaluate(() => scoreDay("2026-10-21"));
-      assert(fin.score === 8 && fin.of === 10, "day should finish 8/10 with steps+workout Nos, got " + JSON.stringify(fin));
+      assert(fin.score === 7 && fin.of === 10, "day should finish 7/10 with steps+workout Nos (and drinks, no longer asked, unanswered), got " + JSON.stringify(fin));
       await clearFake(page);
     });
   }
@@ -1374,7 +1378,7 @@ try {
       const page = await freshPage(browser);
       await setFake(page, "2026-10-21");
       await resetDay(page, "2026-10-21");
-      for (let i = 0; i < 13; i++) await click(page, '[data-act="checkin-yes"]');
+      for (let i = 0; i < 12; i++) await click(page, '[data-act="checkin-yes"]');
       const res = await page.evaluate(() => ({
         oldTick: !!document.querySelector('[data-act="tick"][data-f="seconds"]'),
         oldTitle: !!Array.from(document.querySelectorAll("section.card b")).find((b) => b.textContent.trim() === "Had seconds"),
@@ -1613,6 +1617,160 @@ try {
       await resetDay(page, "2026-10-22");
       await resetDay(page, "2026-10-23");
       await resetDay(page, "2026-10-25");
+      await clearFake(page);
+    });
+  }
+  if (run("v27b2")) {
+    const setFake = async (page, fake) => {
+      await page.evaluate((f) => { try { localStorage.setItem("steady.testmode", JSON.stringify({ fake: f, lastSeen: Date.now() })); } catch (e) {} }, fake);
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.PLAN_ENGINE && document.getElementById("main"));
+    };
+    const clearFake = async (page) => {
+      await page.evaluate(() => { try { localStorage.removeItem("steady.testmode"); } catch (e) {} });
+      await page.reload({ waitUntil: "networkidle0" });
+      await page.close();
+    };
+    const click = async (page, sel) => { await page.evaluate((s) => document.querySelector(s).click(), sel); await wait(350); };
+    const resetDay = async (page, date) => page.evaluate((d) => {
+      state.days[d] = { f: {} }; saveLocal();
+      try { delete ui.checkin; } catch (e) {}
+      ui.tab = "today"; saveUi(); render(true);
+    }, date);
+    const flowState = (page) => page.evaluate(() => {
+      const card = document.querySelector(".checkin-card");
+      const q = card ? card.querySelector(".checkin-q") : null;
+      return { card: !!card, q: q ? q.textContent.trim() : null, selDate };
+    });
+    const waterState = (page, scope) => page.evaluate((sc) => {
+      const root = sc ? document.querySelector(sc) : document;
+      const plus = root ? root.querySelector('[data-act="water-plus"]') : null;
+      const minus = root ? root.querySelector('[data-act="water-minus"]') : null;
+      const cnt = root ? root.querySelector(".water-count") : null;
+      return {
+        plus: !!plus, minus: !!minus,
+        text: cnt ? cnt.textContent.trim() : null,
+        on: cnt ? cnt.className.indexOf("on") >= 0 : false,
+        water: getDayF(selDate, "water"),
+        drinks: scoreDay(selDate).items.drinks
+      };
+    }, scope || null);
+
+    await test("r14.v27b2.checklist-counter-and-scoring", async () => {
+      const page = await freshPage(browser);
+      await setFake(page, "2026-10-21");
+      // Fully answered except drinks: done mode, so the checklist (and its
+      // counter) shows instead of the flow.
+      await page.evaluate(() => {
+        const full = {};
+        ["proteinB", "proteinL", "proteinD", "vegL", "vegD", "mealsPlan", "treat", "kitchenClosed", "noAlcohol", "workoutOff", "bed"].forEach((k) => { full[k] = { v: true, ts: 1 }; });
+        full.steps = { v: 9000, ts: 1 };
+        state.days["2026-10-21"] = { f: full };
+        try { delete ui.checkin; } catch (e) {}
+        ui.tab = "today"; saveUi(); render(true);
+      });
+      await wait(350);
+      let w = await waterState(page);
+      assert(w.plus && !w.minus && w.text === "0 of 8 cups" && w.water === undefined && w.drinks === false,
+        "untouched water should show 0 of 8 cups with no minus, drinks unscored-as-0, got " + JSON.stringify(w));
+      await click(page, '[data-act="water-plus"]');
+      w = await waterState(page);
+      assert(w.text === "1 of 8 cups" && w.minus && w.water === 1 && w.drinks === false,
+        "one tap should show 1 of 8 cups with a minus, drinks still 0, got " + JSON.stringify(w));
+      await click(page, '[data-act="water-minus"]');
+      w = await waterState(page);
+      assert(w.text === "0 of 8 cups" && !w.minus && w.water === 0 && w.drinks === false,
+        "minus should return to 0 (water now governs, drinks stays 0), got " + JSON.stringify(w));
+      for (let i = 0; i < 8; i++) await click(page, '[data-act="water-plus"]');
+      w = await waterState(page);
+      assert(w.text === "8 of 8 cups" && w.on && w.water === 8 && w.drinks === true,
+        "8 taps should reach goal with done styling and drinks true, got " + JSON.stringify(w));
+      await click(page, '[data-act="water-plus"]');
+      w = await waterState(page);
+      assert(w.text === "9 of 8 cups" && w.on && w.water === 9 && w.drinks === true,
+        "taps past goal should keep counting and stay done, got " + JSON.stringify(w));
+      // Old data: drinks=true with no water keeps its score until touched.
+      await page.evaluate(() => {
+        const full = {};
+        ["proteinB", "proteinL", "proteinD", "vegL", "vegD", "mealsPlan", "treat", "kitchenClosed", "drinks", "noAlcohol", "workoutOff", "bed"].forEach((k) => { full[k] = { v: true, ts: 1 }; });
+        full.steps = { v: 9000, ts: 1 };
+        state.days["2026-10-21"] = { f: full };
+        try { delete ui.checkin; } catch (e) {}
+        ui.tab = "today"; saveUi(); render(true);
+      });
+      await wait(350);
+      w = await waterState(page);
+      assert(w.text === "0 of 8 cups" && w.drinks === true,
+        "an old drinks=true day should keep its score with no water tapped, got " + JSON.stringify(w));
+      await click(page, '[data-act="water-plus"]');
+      w = await waterState(page);
+      assert(w.water === 1 && w.drinks === false,
+        "once water is tapped it governs: 1 cup under goal scores drinks 0, got " + JSON.stringify(w));
+      await resetDay(page, "2026-10-21");
+      await clearFake(page);
+    });
+
+    await test("r14.v27b2.flow-counter-today", async () => {
+      const page = await freshPage(browser);
+      await setFake(page, "2026-10-21");
+      await resetDay(page, "2026-10-21");
+      await wait(350);
+      let s = await flowState(page);
+      assert(s.card && s.q === "Protein at breakfast?", "today's flow should open at Q1, got " + JSON.stringify(s));
+      let w = await waterState(page, ".checkin-card");
+      assert(w.plus, "the flow card should carry its own water counter, got " + JSON.stringify(w));
+      await click(page, '.checkin-card [data-act="water-plus"]');
+      w = await waterState(page, ".checkin-card");
+      s = await flowState(page);
+      assert(w.water === 1 && s.card && s.q === "Protein at breakfast?",
+        "a flow tap should log water without moving the question, got " + JSON.stringify({ w, s }));
+      await click(page, '.checkin-card [data-act="water-minus"]');
+      w = await waterState(page, ".checkin-card");
+      assert(w.water === 0, "flow minus should return water to 0, got " + JSON.stringify(w));
+      await resetDay(page, "2026-10-21");
+      await clearFake(page);
+    });
+
+    await test("r14.v27b2.flow-counter-catchup-day", async () => {
+      const page = await freshPage(browser);
+      await resetDay(page, "2026-10-19");
+      await resetDay(page, "2026-10-20");
+      await resetDay(page, "2026-10-21");
+      await setFake(page, "2026-10-25"); // Sunday, plain day
+      await page.evaluate(() => {
+        const full = {};
+        ["proteinB", "proteinL", "proteinD", "vegL", "vegD", "mealsPlan", "treat", "kitchenClosed", "drinks", "noAlcohol", "workoutOff", "bed"].forEach((k) => { full[k] = { v: true, ts: 1 }; });
+        full.steps = { v: 9000, ts: 1 };
+        state.days["2026-10-22"] = { f: full };
+        const fri = {};
+        ["proteinB", "proteinL", "vegL", "noAlcohol"].forEach((k) => { fri[k] = { v: true, ts: 1 }; });
+        fri.steps = { v: 9000, ts: 1 };
+        // workout left unanswered: Friday's first unanswered question.
+        state.days["2026-10-23"] = { f: fri };
+        state.days["2026-10-25"] = { f: {} };
+        try { delete ui.checkin; } catch (e) {}
+        ui.tab = "today"; saveUi(); render(true);
+      });
+      await wait(350);
+      let s = await flowState(page);
+      assert(s.card && s.selDate === "2026-10-23" && s.q === "Workout done?",
+        "the chain should open on Friday's workout, got " + JSON.stringify(s));
+      await click(page, '.checkin-card [data-act="water-plus"]');
+      const got = await page.evaluate(() => ({ fri: getDayF("2026-10-23", "water"), sun: getDayF("2026-10-25", "water") }));
+      assert(got.fri === 1 && got.sun === undefined,
+        "a chain-day tap should log Friday's water, not Sunday's, got " + JSON.stringify(got));
+      await resetDay(page, "2026-10-22");
+      await resetDay(page, "2026-10-23");
+      await resetDay(page, "2026-10-25");
+      await clearFake(page);
+    });
+
+    await test("r14.v27b2.no-counter-on-rest", async () => {
+      const page = await freshPage(browser);
+      await setFake(page, "2026-10-24"); // Saturday, Shabbos
+      await wait(350);
+      const has = await page.evaluate(() => !!document.querySelector('[data-act="water-plus"]'));
+      assert(!has, "a rest day should show no water counter");
       await clearFake(page);
     });
   }

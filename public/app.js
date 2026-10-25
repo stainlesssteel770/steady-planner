@@ -265,6 +265,21 @@ var EXTRAS = {
 };
 function extraCount(date, x) { var v = getDayF(date, x); return typeof v === "number" && v > 0 ? Math.floor(v) : 0; }
 function weekExtraTotal(date, x) { var sun = weekSunday(date), n = 0; for (var i = 0; i < 7; i++) n += extraCount(addDays(sun, i), x); return n; }
+/* v27b item 2: the water counter replaces the drinks question. The goal
+   and unit settings get their UI in item 3; until then they read with
+   the approved defaults (goal 8, cups, 8 oz = 1 cup per tap). Water is
+   stored as cups; the oz display multiplies by 8. */
+function waterGoal() { var g = getSetting("waterGoal"); return (typeof g === "number" && g > 0) ? g : 8; }
+function waterUnit() { var u = getSetting("waterUnit"); return u === "oz" ? "oz" : "cups"; }
+function waterRowHTML(date) {
+  var n = getDayF(date, "water"); n = typeof n === "number" ? n : 0;
+  var goal = waterGoal(), unit = waterUnit();
+  var shown = unit === "oz" ? (n * 8) + " of " + (goal * 8) + " oz" : n + " of " + goal + (goal === 1 ? " cup" : " cups");
+  var done = n >= goal;
+  return '<div class="ticks water-row"><span class="water-label">Water</span><button class="tick" data-act="water-plus">+1</button>' +
+    '<span class="water-count' + (done ? " on" : "") + '">' + shown + '</span>' +
+    (n > 0 ? '<button class="tick" data-act="water-minus">−1</button>' : '') + '</div>';
+}
 function scoreDay(date) {
   if (isRest(date)) return null;
   var pre = isPreRest(date);
@@ -273,13 +288,17 @@ function scoreDay(date) {
      questions apply at all. */
   var fastD = isFastDay(date), tishaD = isTishaBav(date);
   var g = function (f) { return !!getDayF(date, f); };
+  var water = getDayF(date, "water");
   var items = {};
   items.protein = tishaD ? null : fastD ? g("proteinD") : pre ? (g("proteinB") && g("proteinL")) : (g("proteinB") && g("proteinL") && g("proteinD"));
   items.veg = tishaD ? null : fastD ? g("vegD") : pre ? g("vegL") : (g("vegL") && g("vegD"));
   items.mealsPlan = (pre || fastD || tishaD) ? null : (g("mealsPlan") || extraCount(date, "snackX") > 0);
   items.treat = pre ? null : g("treat");
   items.kitchenClosed = pre ? null : g("kitchenClosed");
-  items.drinks = g("drinks");
+  /* v27b item 2: drinks is scored from the water counter once water has
+     been tapped (even back to 0); untouched days keep the legacy bool, so
+     old drinks=true days hold their score with no silent rescoring. */
+  items.drinks = (typeof water === "number") ? (water >= waterGoal()) : g("drinks");
   items.noAlcohol = g("noAlcohol") || extraCount(date, "drinkX") > 0;
   var steps = getDayF(date, "steps");
   items.steps = typeof steps === "number" && steps >= getSetting("stepGoal");
@@ -289,6 +308,7 @@ function scoreDay(date) {
   Object.keys(items).forEach(function (k) { if (items[k] !== null) { of++; if (items[k]) score++; } });
   var logged = ["proteinB", "proteinL", "proteinD", "vegL", "vegD", "mealsPlan", "treat", "kitchenClosed", "drinks", "noAlcohol", "bed", "workout", "workoutOff"].some(g)
     || (typeof steps === "number" && steps > 0)
+    || (typeof water === "number" && water > 0)
     || extraCount(date, "snackX") > 0 || extraCount(date, "drinkX") > 0;
   return { score: score, of: of, items: items, logged: logged, ratio: of ? score / of : 0, preRest: pre };
 }
@@ -326,7 +346,6 @@ function checkinQuestions(date) {
   veg.forEach(function (f) { push(f, vegText[f]); });
   if (!pre && !fastD && !tishaD) push("mealsPlan", "3 meals + 1 afternoon snack?");
   if (!pre) { push("treat", "One portioned treat?"); push("kitchenClosed", "Kitchen closed after the treat?"); }
-  push("drinks", "Seltzer or water?");
   push("noAlcohol", "No alcohol?");
   push("steps", "Hit your step goal?");
   if (!fastD && !tishaD) push("workout", "Workout done?");
@@ -797,7 +816,7 @@ function renderToday() {
       '<button class="tick' + (fans === "yes" ? " on" : "") + '" data-act="checkin-yes">Yes</button>' +
       '<button class="tick' + (fans === "no" ? " no" : "") + '" data-act="checkin-no">No</button>' +
       (flowSt.qi > 0 ? '<button class="tick" data-act="checkin-back">Back</button>' : '') +
-      '<button class="tick" data-act="checkin-skip">Skip</button></div>' +
+      '<button class="tick" data-act="checkin-skip">Skip</button></div>' + waterRowHTML(date) +
       (fq.field === "proteinB" || fq.field === "proteinL" || fq.field === "proteinD" ? (function () {
         var ml = fq.field.slice(-1), cnt = getDayF(date, "seconds" + ml);
         cnt = typeof cnt === "number" ? cnt : 0;
@@ -857,6 +876,9 @@ function renderToday() {
       h += '<div class="habit-sub">' + workoutsInWeek(date) + '/' + getSetting("workoutTarget") + ' this week · 20 min at home</div><div class="ticks">' +
         '<button class="tick' + (wo ? " on" : (woRaw === false ? " no" : "")) + '" data-act="goto-workout">' + (wo ? "Done ✓" : "Start routine") + '</button>' +
         '<button class="tick' + (woff ? " on" : (woffRaw === false ? " no" : "")) + '" data-act="tick" data-f="workoutOff"' + (wo ? " disabled" : "") + '>Rest day</button></div>';
+    } else if (hab.id === "drinks") {
+      /* v27b item 2: the drinks tick is the water counter now. */
+      h += waterRowHTML(date);
     } else if (hab.field) {
       h += '<div class="ticks"><button class="tick' + (getDayF(date, hab.field) ? " on" : (getDayF(date, hab.field) === false ? " no" : "")) + '" data-act="tick" data-f="' + hab.field + '">' + (getDayF(date, hab.field) ? "✓ Done" : "Tap when done") + '</button>';
       var exH = EXTRAS[hab.field];
@@ -1845,6 +1867,12 @@ document.addEventListener("click", function (ev) {
     var sm = el.getAttribute("data-meal"), sf = "seconds" + sm;
     var scur = getDayF(selDate, sf); scur = typeof scur === "number" ? scur : 0;
     opDay(selDate, sf, act === "seconds-plus" ? scur + 1 : Math.max(0, scur - 1));
+    return;
+  }
+  if (act === "water-plus" || act === "water-minus") {
+    if (isRest(selDate)) return;
+    var wcur = getDayF(selDate, "water"); wcur = typeof wcur === "number" ? wcur : 0;
+    opDay(selDate, "water", act === "water-plus" ? wcur + 1 : Math.max(0, wcur - 1));
     return;
   }
   if (act === "tm-off") { tmTurnOff(); return; } /* TESTMODE */

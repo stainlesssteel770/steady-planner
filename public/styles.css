@@ -205,6 +205,9 @@ main {
 .tick.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .tick:disabled { opacity: 0.5; }
 .done-dot { font-size: 1.2rem; color: var(--good); min-width: 28px; text-align: center; padding-top: 2px; }
+.water-row { align-items: center; }
+.water-label { font-size: 0.95rem; }
+.water-count.on { color: var(--good); font-weight: 700; }
 .steps-input {
   width: 130px; min-height: 44px; border: 1px solid var(--line); border-radius: 10px;
   padding: 8px 10px; background: var(--bg); margin-top: 8px;
