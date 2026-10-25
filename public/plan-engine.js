@@ -281,13 +281,15 @@
       }
       return null;
     }
-    function chooseMeal(slotLetter, proteinOrder, opts) {
+    function chooseMealInner(slotLetter, proteinOrder, opts, simpleOnly) {
       opts = opts || {};
       var relaxLevels = opts.levels || [[false, false], [true, false], [true, true]];
       for (var lvl = 0; lvl < relaxLevels.length; lvl++) {
         for (var pi = 0; pi < proteinOrder.length; pi++) {
           var p = proteinOrder[pi];
           var list = candidates([p], slotLetter, used, longCount, relaxLevels[lvl][0], relaxLevels[lvl][1], longMinG);
+          /* v28c item 3: picky phase — only simple meals are candidates. */
+          if (simpleOnly) list = list.filter(function (mm) { return mm.simple; });
           if (opts.excludeTag) {
             /* Bug-fix batch item 11: excludeTag may be a list (a day can carry
                two hard exclusions at once, e.g. fast-day no-meat plus the
@@ -314,6 +316,18 @@
         }
       }
       return null;
+    }
+    /* v28c item 3: picky generation — try the whole choice restricted to
+       simple meals first (all proteins, all relaxation levels); only when
+       no simple meal passes do we fall back to the full pool, and the
+       caller flags that cell (a picky-ON non-simple meal IS a fallback,
+       since the simple phase ran first). */
+    function chooseMeal(slotLetter, proteinOrder, opts) {
+      if (ctx.picky) {
+        var m = chooseMealInner(slotLetter, proteinOrder, opts, true);
+        if (m) return m;
+      }
+      return chooseMealInner(slotLetter, proteinOrder, opts, false);
     }
     // Dinners first, rotating proteins, skipping last night's protein.
     /* Bug-fix batch item 1: the mdGap plan toggle ("meat lunch OK before a
@@ -355,7 +369,9 @@
       if (ctx.erevYK && ctx.erevYK[s.dow]) dopts.preferHearty = true;
       var meal = chooseMeal("D", order, dopts);
       if (meal) {
-        out[s.key] = { id: meal.id };
+        var dcell = { id: meal.id };
+        if (ctx.picky && !meal.simple) dcell.fb = 1;
+        out[s.key] = dcell;
         used[meal.id] = true;
         if (handsOn(meal) >= longMinG) longCount++;
         rotIdx = (rotation.indexOf(meal.p) + 1) % rotation.length;
@@ -439,7 +455,7 @@
         // existed that passes the hard rules (the batch-3 definition).
         meal = chooseMeal("L", rotation, lopts);
       }
-      if (meal) { out[s.key] = { id: meal.id }; used[meal.id] = true; if (handsOn(meal) >= longMinG) longCount++; }
+      if (meal) { var lcell = { id: meal.id }; if (ctx.picky && !meal.simple) lcell.fb = 1; out[s.key] = lcell; used[meal.id] = true; if (handsOn(meal) >= longMinG) longCount++; }
     });
     if (!out.bk) {
       /* v28a item 1 (ruling A1): the default breakfast pair respects
@@ -469,6 +485,8 @@
       }
       var nf = list.filter(function (mm) { return !mm.fresh; });
       if (nf.length) list = nf;
+      /* v28c item 3: a lunch replacement prefers simple meals too. */
+      if (ctx.picky) { var sp2 = list.filter(function (mm) { return mm.simple; }); if (sp2.length) list = sp2; }
       if (list.length) return pickFrom(list, rand);
     }
     return null;
@@ -536,6 +554,9 @@
     }
     var unused = all.filter(function (mm) { return !used[mm.id]; });
     var pool = unused.length ? unused : all;
+    /* v28c item 3: a re-pick prefers simple meals too (same fallback rule:
+       simple-only pool when one exists, else the full pool + fb flag). */
+    if (ctx.picky) { var sp = pool.filter(function (mm) { return mm.simple; }); if (sp.length) pool = sp; }
     if (cur && cur.meal && P.length > 1) {
       var same = pool.filter(function (mm) { return mm.p === cur.meal.p; });
       var other = pool.filter(function (mm) { return mm.p !== cur.meal.p; });
@@ -544,7 +565,9 @@
     }
     if (!pool.length) { if (noFit) out.__noFit = true; return out; }
     var meal = pickFrom(pool, rand);
-    out[key] = { id: meal.id };
+    var scell = { id: meal.id };
+    if (ctx.picky && !meal.simple) scell.fb = 1;
+    out[key] = scell;
     // Dinner shuffled: an unlocked leftover lunch may need re-picking.
     if (slotLetter === "D") {
       var dow = +key.charAt(1);
@@ -552,7 +575,7 @@
         var used2 = {};
         slots(ctx, out).forEach(function (s) { var r = resolve(ctx, out, s.key); if (r && r.meal) used2[r.meal.id] = true; });
         var rep = pickLunchReplacement(ctx, out, day2, P, used2, rand);
-        if (rep) out[lk2] = { id: rep.id }; else delete out[lk2];
+        if (rep) { var rcell = { id: rep.id }; if (ctx.picky && !rep.simple) rcell.fb = 1; out[lk2] = rcell; } else delete out[lk2];
       };
       // Tomorrow's lunch is this dinner's leftovers: re-pick when the new
       // dinner makes no leftovers, or its leftovers are blocked by the

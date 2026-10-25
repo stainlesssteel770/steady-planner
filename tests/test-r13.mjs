@@ -854,6 +854,132 @@ try {
       await page.close();
     });
   }
+  if (run("v28c")) {
+    /* Batch C (v28c): picky mode — plain protein + single-side meals only. */
+    const buildPickyWeek = async (page, proteins, picky) => page.evaluate((proteins, picky) => {
+      const week = addDays(weekSunday(todayStr), 7);
+      opSettings("pickyMode", picky);
+      state.plans[week] = { f: { pro: { v: proteins, ts: 1000 } } };
+      saveLocal();
+      buildWeek(week);
+      return week;
+    }, proteins, picky);
+    const readWeekMeals = async (page, week) => page.evaluate((week) => {
+      const cells = planCells(week);
+      const meals = [];
+      Object.keys(cells).forEach((k) => {
+        if (/^m\d[LD]$/.test(k) && cells[k] && cells[k].id) meals.push({ key: k, id: cells[k].id, fb: !!cells[k].fb, simple: !!PD.MEALS[cells[k].id].simple });
+      });
+      return meals;
+    }, week);
+    const clearPickyWeek = async (page, week) => page.evaluate((week) => {
+      delete state.plans[week]; opSettings("pickyMode", false); saveLocal();
+    }, week);
+
+    await test("r13.v28c.picky-on-mixed", async () => {
+      const page = await freshPage(browser);
+      const week = await buildPickyWeek(page, ["chicken", "tofu"], true);
+      await wait(400);
+      const meals = await readWeekMeals(page, week);
+      assert(meals.length >= 6, "expected a full generated week, got: " + JSON.stringify(meals));
+      assert(meals.every((m) => m.simple || m.fb), "every picky-ON meal must be simple or fallback-flagged, got: " + JSON.stringify(meals));
+      assert(meals.some((m) => m.simple), "expected at least one simple meal, got: " + JSON.stringify(meals));
+      assert(meals.some((m) => m.fb), "expected at least one fallback (tofu has no simple meals), got: " + JSON.stringify(meals));
+      await clearPickyWeek(page, week);
+      await page.close();
+    });
+
+    await test("r13.v28c.picky-off-tofu", async () => {
+      const page = await freshPage(browser);
+      const week = await buildPickyWeek(page, ["tofu"], false);
+      await wait(400);
+      const meals = await readWeekMeals(page, week);
+      assert(meals.length >= 6, "expected a full generated week, got: " + JSON.stringify(meals));
+      assert(meals.every((m) => !m.simple), "picky OFF must not filter to simple meals, got: " + JSON.stringify(meals));
+      assert(!meals.some((m) => m.fb), "picky OFF must never set the fallback flag, got: " + JSON.stringify(meals));
+      await clearPickyWeek(page, week);
+      await page.close();
+    });
+
+    await test("r13.v28c.picky-on-tofu-fallback", async () => {
+      const page = await freshPage(browser);
+      const week = await buildPickyWeek(page, ["tofu"], true);
+      await wait(400);
+      const meals = await readWeekMeals(page, week);
+      assert(meals.length >= 6, "expected a full generated week, got: " + JSON.stringify(meals));
+      assert(meals.every((m) => !m.simple && m.fb), "tofu-only picky week must fall back on every slot, got: " + JSON.stringify(meals));
+      await clearPickyWeek(page, week);
+      await page.close();
+    });
+
+    await test("r13.v28c.picky-shuffle-prefers-simple", async () => {
+      const page = await freshPage(browser);
+      const out = await page.evaluate(() => {
+        opSettings("pickyMode", true);
+        const ctx = planCtx(addDays(weekSunday(todayStr), 7));
+        const res = ENGINE.shuffleOne(ctx, { pro: ["chicken"], m0L: { id: "c4" } }, "m0L");
+        opSettings("pickyMode", false);
+        return { id: res.m0L && res.m0L.id, fb: !!(res.m0L && res.m0L.fb), simple: !!(res.m0L && res.m0L.id && PD.MEALS[res.m0L.id].simple) };
+      });
+      assert(out && out.id && out.simple, "shuffled lunch must be simple, got: " + JSON.stringify(out));
+      assert(!out.fb, "a simple shuffle replacement must not carry the fallback flag, got: " + JSON.stringify(out));
+      await page.close();
+    });
+
+    await test("r13.v28c.picky-ui-fallback-note", async () => {
+      const page = await freshPage(browser);
+      const week = await buildPickyWeek(page, ["tofu"], true);
+      await wait(400);
+      await page.evaluate((week) => { ui.tab = "plan"; ui.planWs = week; saveUi(); render(true); }, week);
+      await wait(300);
+      const txt = await page.evaluate(() => document.body.innerText);
+      assert(txt.indexOf("no simple option — showing regular") >= 0, "fallback meals must carry the note on the plan tab");
+      await clearPickyWeek(page, week);
+      await page.close();
+    });
+
+    await test("r13.v28c.picky-toggle-persists", async () => {
+      const page = await freshPage(browser);
+      await page.click("#gearBtn");
+      await page.waitForSelector("#setPickyMode", { timeout: 5000 });
+      const was = await page.evaluate(() => document.getElementById("setPickyMode").checked);
+      assert(was === false, "picky toggle must default OFF, got: " + was);
+      await page.click("#setPickyMode");
+      await page.click("#setSave");
+      await wait(400);
+      await page.reload({ waitUntil: "load" });
+      await page.waitForFunction(() => window.PLAN_ENGINE && window.PLAN_DATA && document.getElementById("main"));
+      await wait(350);
+      await page.click("#gearBtn");
+      await page.waitForSelector("#setPickyMode", { timeout: 5000 });
+      const now = await page.evaluate(() => document.getElementById("setPickyMode").checked);
+      assert(now === true, "picky toggle must persist across reload, got: " + now);
+      await page.click("#setPickyMode");
+      await page.click("#setSave");
+      await wait(300);
+      await page.close();
+    });
+
+    await test("r13.v28c.picky-old-backup-default-off", async () => {
+      const page = await freshPage(browser);
+      const dialogs = [];
+      page.on("dialog", async (d) => { dialogs.push(d.message()); await d.accept().catch(() => {}); });
+      const fs = await import("fs");
+      fs.mkdirSync("/tmp/testbed", { recursive: true });
+      fs.writeFileSync("/tmp/testbed/v28c-old-backup.json", JSON.stringify({ settings: { f: {} }, favorites: { items: {} }, days: {}, grocery: { f: {} }, plans: {} }));
+      const input = await page.$("#restoreInput");
+      await input.uploadFile("/tmp/testbed/v28c-old-backup.json");
+      await page.waitForFunction(() => false, { timeout: 1 }).catch(() => {});
+      for (let i = 0; i < 30 && dialogs.length < 2; i++) await wait(150);
+      assert(dialogs.length >= 2, "expected confirm + alert dialogs, got " + JSON.stringify(dialogs));
+      const alertMsg = dialogs[dialogs.length - 1];
+      assert(!/bad value/.test(alertMsg), "alert should report 0 bad values, got: " + alertMsg);
+      await wait(500);
+      const picky = await page.evaluate(() => getSetting("pickyMode"));
+      assert(picky === false, "old backup must load with picky mode OFF, got: " + JSON.stringify(picky));
+      await page.close();
+    });
+  }
 } finally {
   await browser.close();
 }

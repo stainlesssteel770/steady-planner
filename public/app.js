@@ -164,11 +164,11 @@ function planCtx(week) {
     if (NINEDAYS[dt4]) nine[d4] = true;
     if (YOMTOV[addDays(dt4, 1)] === "Yom Kippur") erevYK[d4] = true;
   }
-  return { week: week, today: todayStr, rest: rest, pre: pre, yomtov: yt, fast: fast, tisha: tisha, nine: nine, erevYK: erevYK, excl: getSetting("proteinExcl") || {} };
+  return { week: week, today: todayStr, rest: rest, pre: pre, yomtov: yt, fast: fast, tisha: tisha, nine: nine, erevYK: erevYK, excl: getSetting("proteinExcl") || {}, picky: !!getSetting("pickyMode") };
 }
 
 /* ---------------- settings ---------------- */
-var SETTING_DEFAULTS = { stepGoal: 7500, workoutTarget: 3, workoutLevel: 0, workoutRounds: 3, prepDay: 0, proteinExcl: {} };
+var SETTING_DEFAULTS = { stepGoal: 7500, workoutTarget: 3, workoutLevel: 0, workoutRounds: 3, prepDay: 0, proteinExcl: {}, pickyMode: false };
 function getSetting(name) {
   var c = state.settings && state.settings.f ? state.settings.f[name] : null;
   return c && c.v !== null && c.v !== undefined ? c.v : SETTING_DEFAULTS[name];
@@ -1327,6 +1327,9 @@ function mealCardHTML(ctx, cells, key) {
   if (pplMC > 1) hint += " · for " + pplMC;
   h += '<div class="meal-name">' + tagPill(r.meal.t) + ' ' + (r.lo ? "Leftovers: " : "") + esc(r.meal.n) + ' <span class="muted small">· ' + hint + '</span></div>' +
     '<div class="meal-how">' + (r.lo ? "Second portion of last night's dinner, packed on the night." : esc(r.meal.how)) + '</div>';
+  /* v28c item 3: a slot that fell back to the full pool says so. */
+  var rawCell = cells[key];
+  if (rawCell && rawCell.fb) h += '<div class="muted small">no simple option — showing regular</div>';
   if (r.slot === "D") {
     var nx = ENGINE.resolve(ctx, cells, "m" + (r.dow + 1) + "L");
     if (nx && nx.lo && nx.meal && nx.meal.id === r.meal.id) h += '<div class="kv">Cook ×2: tomorrow\'s lunch</div>';
@@ -2476,6 +2479,7 @@ function openSettings() {
   document.getElementById("setWaterUnit").value = waterUnit();
   document.getElementById("setCoffeeOn").checked = !!getSetting("coffeeOn");
   document.getElementById("setAlcoholOn").checked = !!getSetting("alcoholOn");
+  document.getElementById("setPickyMode").checked = !!getSetting("pickyMode");
   setProteinStaged = Object.assign({}, getSetting("proteinExcl") || {});
   setProteinWarn = "";
   renderSetProteins();
@@ -2510,6 +2514,7 @@ document.getElementById("setSave").addEventListener("click", function (ev) {
   var wuRaw = document.getElementById("setWaterUnit").value;
   var cfChecked = document.getElementById("setCoffeeOn").checked;
   var alChecked = document.getElementById("setAlcoholOn").checked;
+  var pkChecked = document.getElementById("setPickyMode").checked;
   var errs = [];
   var sg = null, wt = null, wg = null, badField = null;
   if (sgRaw !== "") { sg = Number(sgRaw); if (!(sg >= 1000 && sg <= 40000)) { errs.push("Step goal must be between 1,000 and 40,000."); badField = "setStepGoal"; } }
@@ -2524,6 +2529,7 @@ document.getElementById("setSave").addEventListener("click", function (ev) {
   if (wuRaw !== waterUnit()) opSettings("waterUnit", wuRaw);
   if (cfChecked !== !!getSetting("coffeeOn")) opSettings("coffeeOn", cfChecked);
   if (alChecked !== !!getSetting("alcoholOn")) opSettings("alcoholOn", alChecked);
+  if (pkChecked !== !!getSetting("pickyMode")) opSettings("pickyMode", pkChecked);
   /* v28a item 1: staged protein exclusions save with the dialog (guard
      re-checked here; the toggles already refuse invalid states). */
   if (setProteinStaged) {
@@ -2619,6 +2625,12 @@ function sanitizeBackup(parsed) {
       c.v = kept;
       return c;
     }
+    /* v28c item 3: picky mode survives backup restore (same class of gap
+       as the v28b sanitizer fix — a new setting needs its branch). */
+    if (name === "pickyMode") {
+      if (c.v === true || c.v === false) return c;
+      fixed++; return null;
+    }
     /* v28b: coffee/alcohol/water-unit survive backup restore — they were
        silently dropped (no branch), so a restore reset them to defaults. */
     if (name === "coffeeOn" || name === "alcoholOn") {
@@ -2662,6 +2674,7 @@ function sanitizeBackup(parsed) {
       if (typeof c.v.id === "string") o.id = c.v.id;
       if (c.v.lo) o.lo = 1;
       if (c.v.k) o.k = true;
+      if (c.v.fb) o.fb = 1;
       if (!o.id && !o.lo) { fixed++; return null; }
       c.v = o; return c;
     }
