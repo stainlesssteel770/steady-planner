@@ -24,9 +24,14 @@ async function freshPage(browser) {
   return page;
 }
 /* Pick a log date the extra-counter tests can score against: not a rest
-   day and not a pre-rest day (mealsPlan is unscored on pre-rest days). */
+   day and not a pre-rest day (mealsPlan is unscored on pre-rest days).
+   v27b item 4 fix: start from yesterday, never today — since v27a, today
+   with unanswered questions shows the check-in flow, not the checklist,
+   so the extras buttons would not exist. Also enable alcohol: the
+   noAlcohol row (and its drink extras) is hidden by default since item 3. */
 const pickLogDate = (page) => page.evaluate(() => {
-  let d = todayStr, guard = 0;
+  opSettings("alcoholOn", true);
+  let d = addDays(todayStr, -1), guard = 0;
   while ((isRest(d) || isPreRest(d)) && guard++ < 10) d = addDays(d, -1);
   state.days = {}; saveLocal();
   selDate = d; ui.tab = "today"; saveUi(); render(true);

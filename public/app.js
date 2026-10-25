@@ -2334,8 +2334,11 @@ document.getElementById("settingsDlg").addEventListener("close", function () { o
 document.getElementById("setSave").addEventListener("click", function (ev) {
   var errEl = document.getElementById("setError");
   function setErr(msg, fieldId) {
-    if (errEl) { errEl.textContent = msg; errEl.hidden = !msg; if (msg) errEl.scrollIntoView({ block: "nearest" }); }
+    /* v27b item 4 fix: focus first, then scroll the error into view last.
+       The old order (scroll, then focus) let the field's focus-scroll undo
+       the error scroll once item 3's extra rows made the dialog taller. */
     if (msg && fieldId) { var fEl = document.getElementById(fieldId); if (fEl) fEl.focus(); }
+    if (errEl) { errEl.textContent = msg; errEl.hidden = !msg; if (msg) errEl.scrollIntoView({ block: "nearest" }); }
   }
   var sgRaw = document.getElementById("setStepGoal").value.trim();
   var wtRaw = document.getElementById("setWorkoutTarget").value.trim();
