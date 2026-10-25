@@ -293,6 +293,9 @@ summary::-webkit-details-marker { display: none; }
 .protein-chip.on .hint { color: inherit; opacity: 0.85; }
 .pgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+/* v28a: protein switches two-up so the Settings dialog stays short enough
+   for the error line to sit above the sticky footer (r7 seterr). */
+.pro-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
 .toggle-row:last-child { border-bottom: none; }
 .switch { min-width: 56px; min-height: 36px; border-radius: 999px; border: 1.5px solid var(--line); background: var(--chip); position: relative; flex: none; }
 .switch::after { content: ""; position: absolute; top: 3px; left: 4px; width: 26px; height: 26px; border-radius: 50%; background: var(--card); border: 1px solid var(--line); transition: left 0.15s; }

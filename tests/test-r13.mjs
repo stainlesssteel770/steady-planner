@@ -713,6 +713,28 @@ try {
       await page.close();
     });
 
+    await test("r13.v28a.buildweek-copy-filters", async () => {
+      const page = await freshPage(browser);
+      await setExclViaUI(page, ["eggs"]);
+      await page.evaluate(() => {
+        state.plans["2026-10-11"] = { f: {
+          pro: { v: ["chicken", "yogurt"], ts: 1000 },
+          m0D: { v: { id: "y3" }, ts: 1001 },
+          bk: { v: ["bk1", "bk2"], ts: 1002 }
+        } };
+        state.plans["2026-10-18"] = { f: { pro: { v: ["chicken", "yogurt"], ts: 1000 } } };
+        saveLocal();
+        buildWeek("2026-10-18");
+      });
+      await wait(400);
+      const bk = await page.evaluate(() => planCells("2026-10-18").bk);
+      assert(bk && !bk.some((id) => ["bk1", "bk5", "bk6"].includes(id)), "carried-forward breakfasts must exclude eggs, got: " + JSON.stringify(bk));
+      assert(bk && bk.length >= 2, "carried pair must refill to 2, got: " + JSON.stringify(bk));
+      await page.evaluate(() => { delete state.plans["2026-10-11"]; delete state.plans["2026-10-18"]; saveLocal(); });
+      await clearExcl(page);
+      await page.close();
+    });
+
     await test("r13.v28a.old-backup-loads", async () => {
       const page = await freshPage(browser);
       const dialogs = [];

@@ -1895,7 +1895,18 @@ function buildWeek(week) {
         if (!hasC && k.indexOf("c_") === 0 && src[k]) opPlan(week, k, src[k], { silent: true });
         if (!hasH && k.indexOf("h_") === 0 && src[k]) opPlan(week, k, src[k], { silent: true });
       });
-      if (!cells.bk && src.bk) opPlan(week, "bk", src.bk, { silent: true });
+      if (!cells.bk && src.bk) {
+        /* v28a fix (CI run 40172468171): a carried-forward breakfast pair
+           must respect exclusions too — filter it, refill from the remaining
+           breakfasts in order; if fewer than 2 survive, leave bk missing so
+           generate's exclusion-aware default applies. */
+        var exclBk = getSetting("proteinExcl") || {};
+        var keptBk = src.bk.filter(function (id) { return !ENGINE.breakfastExcluded(id, exclBk); });
+        Object.keys(PD.BK).forEach(function (id) {
+          if (keptBk.length < 2 && keptBk.indexOf(id) < 0 && !ENGINE.breakfastExcluded(id, exclBk)) keptBk.push(id);
+        });
+        if (keptBk.length >= 2) opPlan(week, "bk", keptBk, { silent: true });
+      }
       ["srvB", "srvL", "srvD"].forEach(function (sk) { if (cells[sk] == null && src[sk] != null) opPlan(week, sk, src[sk], { silent: true }); });
       cells = planCells(week);
     }
@@ -2423,12 +2434,13 @@ function renderSetProteins() {
   var avail = PD.PROTEINS.filter(function (p) { return !staged[p[0]]; }).length;
   var fishIds = ["salmon", "tuna", "whitefish"];
   var fishAll = fishIds.every(function (id) { return staged[id]; });
-  var h = '<button type="button" class="btn" data-act="set-nofish">' + (fishAll ? "Include fish again" : "No fish") + '</button>';
+  var h = '<button type="button" class="btn" data-act="set-nofish">' + (fishAll ? "Include fish again" : "No fish") + '</button><div class="pro-grid">';
   PD.PROTEINS.forEach(function (p) {
     var eats = !staged[p[0]];
     h += '<div class="toggle-row"><div><b>' + esc(p[1]) + '</b></div>' +
       '<button type="button" class="switch' + (eats ? " on" : "") + '" data-act="set-pro" data-id="' + p[0] + '" role="switch" aria-checked="' + eats + '" aria-label="' + esc(p[1]) + '"></button></div>';
   });
+  h += '</div>';
   listEl.innerHTML = h;
   var msgEl = document.getElementById("setProteinMsg");
   if (msgEl) msgEl.textContent = setProteinWarn || (avail + " of " + PD.PROTEINS.length + " proteins · exclusions apply to new plans and re-picks");
