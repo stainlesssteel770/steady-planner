@@ -2225,10 +2225,13 @@ try {
     };
     const click = async (page, sel) => { await page.evaluate((s) => document.querySelector(s).click(), sel); await wait(350); };
     const SEED_PROS = ["chicken", "gbeef", "gturkey", "schnitzel", "stew", "salmon", "tuna", "whitefish", "eggs", "tofu", "legumes", "yogurt"];
+    // v29b: the library grows past the 12 seed rows, so the test asserts the
+    // seed set intact + a growing count, not an exact total.
+    const SEED_IDS = ["r-chicken-shawarma-salad", "r-grandma-meatballs", "r-turkey-meatballs-spinach", "r-matzo-schnitzel", "r-bazin", "r-dry-rub-salmon", "r-provencal-tuna", "r-sheet-pan-fish-chips", "r-shakshuka-hummus", "r-thai-tofu-curry", "r-mujadara", "r-berry-yogurt-granola-parfait"];
 
     await test("r14.v29a.generation-uses-recipes-only", async () => {
       const page = await freshPage(browser);
-      const res = await page.evaluate((mulberrySrc, pros) => {
+      const res = await page.evaluate((mulberrySrc, pros, seedIds) => {
         const mulberry = eval(mulberrySrc);
         const ctx = { week: "2026-10-18", today: "2026-10-18", rest: {}, pre: {} };
         const RECIPES = PLAN_DATA.RECIPES || {};
@@ -2252,14 +2255,16 @@ try {
         const old = PLAN_ENGINE.resolve(ctx, { m0L: { id: "c1" } }, "m0L");
         return {
           recipeCount: Object.keys(RECIPES).length,
+          seedMissing: seedIds.filter((id) => !RECIPES[id]),
           byProtein, filled, retiredSeen: retiredSeen.slice(0, 5), nonRecipeSeen: nonRecipeSeen.slice(0, 5),
           oldResolves: !!(old && old.meal), oldRetired: !!(old && old.meal && old.meal.retired),
           oldName: old && old.meal ? old.meal.n : null
         };
-      }, MULBERRY, SEED_PROS);
-      assert(res.recipeCount === 12, "seed set must be 12 recipes, got " + res.recipeCount);
-      assert(res.byProtein.yogurt === 1 && res.byProtein.deli === undefined,
-        "yogurt must have its seed recipe (Tab: one per category), deli still a flagged gap, got " + JSON.stringify(res.byProtein));
+      }, MULBERRY, SEED_PROS, SEED_IDS);
+      assert(res.seedMissing.length === 0, "all 12 seed recipes must still resolve, missing " + JSON.stringify(res.seedMissing));
+      assert(res.recipeCount >= 12, "library must hold at least the 12 seed recipes, got " + res.recipeCount);
+      assert(res.byProtein.yogurt === 1 && res.byProtein.deli >= 1 && res.byProtein.deli < 5,
+        "yogurt must have its seed recipe, deli sourced by B1 but still under Tab's 5-flag, got " + JSON.stringify(res.byProtein));
       assert(res.filled >= 200, "generated weeks must fill slots, got " + res.filled);
       assert(res.retiredSeen.length === 0, "generation must never return a retired meal, got " + JSON.stringify(res.retiredSeen));
       assert(res.nonRecipeSeen.length === 0, "generation must return recipe ids only, got " + JSON.stringify(res.nonRecipeSeen));
@@ -2301,9 +2306,13 @@ try {
         return tw;
       });
       await click(page, '.meal-card[data-act="meal-pick"]');
-      const opts = await page.evaluate(() => Array.from(document.querySelectorAll("#mpList .mp-opt[data-id]")).map((b) => ({ id: b.getAttribute("data-id"), retired: PLAN_DATA.MEALS[b.getAttribute("data-id")].retired })));
+      const { opts, expectN } = await page.evaluate(() => {
+        const opts = Array.from(document.querySelectorAll("#mpList .mp-opt[data-id]")).map((b) => ({ id: b.getAttribute("data-id"), retired: PLAN_DATA.MEALS[b.getAttribute("data-id")].retired }));
+        const expectN = Object.keys(PLAN_DATA.MEALS).filter((id) => { const m = PLAN_DATA.MEALS[id]; return !m.retired && (m.p === "chicken" || m.p === "salmon") && m.s.indexOf("L") >= 0; }).length;
+        return { opts, expectN };
+      });
       const ids = opts.map((o) => o.id);
-      assert(ids.length === 2, "picker for chicken+salmon should list exactly the 2 seed recipes, got " + JSON.stringify(ids));
+      assert(ids.length === expectN, "picker for chicken+salmon should list every non-retired chicken/salmon lunch recipe, got " + ids.length + " expected " + expectN + ": " + JSON.stringify(ids));
       assert(ids.includes("r-chicken-shawarma-salad") && ids.includes("r-dry-rub-salmon"),
         "picker must list recipes, got " + JSON.stringify(ids));
       assert(!ids.includes("c1") && opts.every((o) => !o.retired),

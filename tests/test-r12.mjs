@@ -161,7 +161,7 @@ try {
         const out2 = ENGINE.generate(ctx, build(whitefishL.concat(salmonL)), Math.random);
         return { m3L_1: out1.m3L, m3L_2: out2.m3L, salmonL, whitefishL, chickenL };
       });
-      assert(res.salmonL.length === 1 && res.whitefishL.length === 1 && res.chickenL.length === 1, "setup inventory changed: " + JSON.stringify({ s: res.salmonL, w: res.whitefishL, c: res.chickenL }));
+      assert(res.salmonL.length === 1 && res.whitefishL.length === 1 && res.chickenL.length >= 1, "setup inventory changed: " + JSON.stringify({ s: res.salmonL, w: res.whitefishL, c: res.chickenL }));
       assert(res.m3L_1 && res.salmonL.indexOf(res.m3L_1.id) >= 0,
         "whitefish used up -> lunch should widen to last night's protein (salmon), got " + JSON.stringify(res.m3L_1));
       assert(res.m3L_2 && res.chickenL.indexOf(res.m3L_2.id) >= 0,
