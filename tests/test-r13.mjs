@@ -415,23 +415,28 @@ try {
     });
 
     await test("r13.long.short-dinners-not-capped", async () => {
-      // v29a P1: matzo-schnitzel (25 min total) is below the default 30
-      // threshold, so the cap never binds it — 3+ schnitzel dinners
-      // (via repeats) must be reachable in a week.
+      // v29a P1, B1 exemplar: parfait (10 min total) is below the
+      // default 30 threshold, so the cap never binds it — 3+ parfait
+      // dinners (via repeats) must be reachable in a week. (Matzo
+      // retired as the exemplar in B1: schnitzel now has two recipes,
+      // so matzo alone maxes at 2/week via variety — node probe: avg
+      // matzo 1.05, sheet-pan 0.99 — not via the cap. Parfait, the
+      // remaining single-short-recipe protein, proves the property:
+      // 190/500 weeks reach 3+.)
       const page = await freshPage(browser);
       const res = await page.evaluate((mulberrySrc) => {
         const mulberry = eval(mulberrySrc);
         const ctx = { week: "2026-10-18", today: "2026-10-18", rest: {}, pre: {} };
         let ge3 = 0;
         for (let s = 1; s <= 500; s++) {
-          const out = PLAN_ENGINE.generate(ctx, { pro: ["schnitzel", "chicken"] }, mulberry(s));
+          const out = PLAN_ENGINE.generate(ctx, { pro: ["yogurt", "chicken"] }, mulberry(s));
           let n = 0;
-          for (let d = 0; d <= 4; d++) { const c = out["m" + d + "D"]; if (c && c.id === "r-matzo-schnitzel") n++; }
+          for (let d = 0; d <= 4; d++) { const c = out["m" + d + "D"]; if (c && c.id === "r-berry-yogurt-granola-parfait") n++; }
           if (n >= 3) ge3++;
         }
         return { ge3 };
       }, MULBERRY);
-      assert(res.ge3 > 50, "25-min schnitzel dinners (not long at 30) should be able to reach 3+ in a week, got " + res.ge3 + "/500 weeks");
+      assert(res.ge3 > 50, "10-min parfait dinners (not long at 30) should be able to reach 3+ in a week, got " + res.ge3 + "/500 weeks");
       await page.close();
     });
 
@@ -442,9 +447,9 @@ try {
         const ctx = { week: "2026-10-18", today: "2026-10-18", rest: {}, pre: {} };
         let ge3at45 = 0, maxLong20 = 0;
         for (let s = 1; s <= 500; s++) {
-          const o45 = PLAN_ENGINE.generate(ctx, { pro: ["schnitzel", "chicken"], longMin: 45 }, mulberry(s));
+          const o45 = PLAN_ENGINE.generate(ctx, { pro: ["yogurt", "chicken"], longMin: 45 }, mulberry(s));
           let n = 0;
-          for (let d = 0; d <= 4; d++) { const c = o45["m" + d + "D"]; if (c && c.id === "r-matzo-schnitzel") n++; }
+          for (let d = 0; d <= 4; d++) { const c = o45["m" + d + "D"]; if (c && c.id === "r-berry-yogurt-granola-parfait") n++; }
           if (n >= 3) ge3at45++;
           // At 20 every recipe in the set is long except parfait, which
           // is the non-long fallback that lets the cap bind at 2.
@@ -455,7 +460,7 @@ try {
         }
         return { ge3at45, maxLong20, def: PLAN_ENGINE.longMinOf({}), bad: PLAN_ENGINE.longMinOf({ longMin: "x" }) };
       }, MULBERRY);
-      assert(res.ge3at45 > 50, "at longMin 45 schnitzel (25 min) is not long, so 3+ schnitzel dinners should occur, got " + res.ge3at45 + "/500");
+      assert(res.ge3at45 > 50, "at longMin 45 parfait (10 min) is not long, so 3+ parfait dinners should occur, got " + res.ge3at45 + "/500");
       assert(res.maxLong20 <= 2, "at longMin 20 the cap must bind all total-time>=20 dinners, max seen " + res.maxLong20);
       assert(res.def === 30 && res.bad === 30, "longMinOf must default to 30: " + JSON.stringify(res));
       await page.close();
@@ -1064,7 +1069,7 @@ try {
         count: Object.keys(PD.MEALS).filter((id) => PD.MEALS[id].simple).length
       }));
       assert(out.c3 === false && out.d2 === false && out.e6 === false, "the three wraps must not be flagged simple, got: " + JSON.stringify(out));
-      assert(out.count === 23, "simple count must be 19 old + 4 recipe simples (v29a), got " + out.count);
+      assert(out.count === 24, "simple count must be 19 old + 5 recipe simples (4 seed + cajun, B1), got " + out.count);
       await page.close();
     });
   }
