@@ -423,6 +423,9 @@ try {
       // matzo 1.05, sheet-pan 0.99 — not via the cap. Parfait, the
       // remaining single-short-recipe protein, proves the property:
       // 190/500 weeks reach 3+.)
+      // v29c B2: yogurt gains a second 10-min recipe (the bowl), so
+      // parfait alone no longer reaches 3+/week — the property is now
+      // proven by short yogurt dinners (parfait + bowl) together.
       const page = await freshPage(browser);
       const res = await page.evaluate((mulberrySrc) => {
         const mulberry = eval(mulberrySrc);
@@ -431,12 +434,12 @@ try {
         for (let s = 1; s <= 500; s++) {
           const out = PLAN_ENGINE.generate(ctx, { pro: ["yogurt", "chicken"] }, mulberry(s));
           let n = 0;
-          for (let d = 0; d <= 4; d++) { const c = out["m" + d + "D"]; if (c && c.id === "r-berry-yogurt-granola-parfait") n++; }
+          for (let d = 0; d <= 4; d++) { const c = out["m" + d + "D"]; if (c && c.id && PLAN_DATA.MEALS[c.id].p === "yogurt" && !PLAN_ENGINE.isLong(PLAN_DATA.MEALS[c.id], 30)) n++; }
           if (n >= 3) ge3++;
         }
         return { ge3 };
       }, MULBERRY);
-      assert(res.ge3 > 50, "10-min parfait dinners (not long at 30) should be able to reach 3+ in a week, got " + res.ge3 + "/500 weeks");
+      assert(res.ge3 > 50, "10-min yogurt dinners (parfait + B2 bowl, not long at 30) should be able to reach 3+ in a week, got " + res.ge3 + "/500 weeks");
       await page.close();
     });
 
@@ -449,10 +452,11 @@ try {
         for (let s = 1; s <= 500; s++) {
           const o45 = PLAN_ENGINE.generate(ctx, { pro: ["yogurt", "chicken"], longMin: 45 }, mulberry(s));
           let n = 0;
-          for (let d = 0; d <= 4; d++) { const c = o45["m" + d + "D"]; if (c && c.id === "r-berry-yogurt-granola-parfait") n++; }
+          for (let d = 0; d <= 4; d++) { const c = o45["m" + d + "D"]; if (c && c.id && PLAN_DATA.MEALS[c.id].p === "yogurt" && !PLAN_ENGINE.isLong(PLAN_DATA.MEALS[c.id], 45)) n++; }
           if (n >= 3) ge3at45++;
-          // At 20 every recipe in the set is long except parfait, which
-          // is the non-long fallback that lets the cap bind at 2.
+          // At 20 every recipe in the set is long except the yogurt
+          // shorts (parfait + B2 bowl), which are the non-long fallback
+          // that lets the cap bind at 2.
           const o20 = PLAN_ENGINE.generate(ctx, { pro: ["schnitzel", "chicken", "gbeef", "yogurt"], longMin: 20 }, mulberry(s));
           let nl = 0;
           for (let d = 0; d <= 4; d++) { const c = o20["m" + d + "D"]; if (c && c.id && PLAN_ENGINE.isLong(PLAN_DATA.MEALS[c.id], 20)) nl++; }
@@ -460,7 +464,7 @@ try {
         }
         return { ge3at45, maxLong20, def: PLAN_ENGINE.longMinOf({}), bad: PLAN_ENGINE.longMinOf({ longMin: "x" }) };
       }, MULBERRY);
-      assert(res.ge3at45 > 50, "at longMin 45 parfait (10 min) is not long, so 3+ parfait dinners should occur, got " + res.ge3at45 + "/500");
+      assert(res.ge3at45 > 50, "at longMin 45 yogurt shorts (10 min) are not long, so 3+ short yogurt dinners should occur, got " + res.ge3at45 + "/500");
       assert(res.maxLong20 <= 2, "at longMin 20 the cap must bind all total-time>=20 dinners, max seen " + res.maxLong20);
       assert(res.def === 30 && res.bad === 30, "longMinOf must default to 30: " + JSON.stringify(res));
       await page.close();

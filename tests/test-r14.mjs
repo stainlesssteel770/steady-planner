@@ -2263,8 +2263,8 @@ try {
       }, MULBERRY, SEED_PROS, SEED_IDS);
       assert(res.seedMissing.length === 0, "all 12 seed recipes must still resolve, missing " + JSON.stringify(res.seedMissing));
       assert(res.recipeCount >= 12, "library must hold at least the 12 seed recipes, got " + res.recipeCount);
-      assert(res.byProtein.yogurt === 1 && res.byProtein.deli >= 1 && res.byProtein.deli < 5,
-        "yogurt must have its seed recipe, deli sourced by B1 but still under Tab's 5-flag, got " + JSON.stringify(res.byProtein));
+      assert(res.byProtein.yogurt === 2 && res.byProtein.deli >= 1 && res.byProtein.deli < 5,
+        "yogurt: seed + B2 bowl, deli sourced by B1 but still under Tab's 5-flag, got " + JSON.stringify(res.byProtein));
       assert(res.filled >= 200, "generated weeks must fill slots, got " + res.filled);
       assert(res.retiredSeen.length === 0, "generation must never return a retired meal, got " + JSON.stringify(res.retiredSeen));
       assert(res.nonRecipeSeen.length === 0, "generation must return recipe ids only, got " + JSON.stringify(res.nonRecipeSeen));
