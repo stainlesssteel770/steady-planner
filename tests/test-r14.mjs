@@ -2360,6 +2360,85 @@ try {
       await page.close();
     });
   }
+
+  /* ============ v29c Batch C: recipe favourites / Not-again / variety ============ */
+  if (run("v29c")) {
+    const click29c = async (page, sel) => { await page.evaluate((s) => document.querySelector(s).click(), sel); await wait(350); };
+
+    await test("r14.v29c1.favourite-picked-for-single-protein-dinner", async () => {
+      const page = await freshPage(browser);
+      const res = await page.evaluate((mulberrySrc) => {
+        const mulberry = eval(mulberrySrc);
+        const ctx = { week: "2026-10-18", today: "2026-10-18", rest: {}, pre: {}, recipeFav: { "r-sweet-chili-salmon": true } };
+        let filled = 0, fav = 0, other = [];
+        for (let s = 1; s <= 50; s++) {
+          const out = PLAN_ENGINE.generate(ctx, { pro: ["salmon"] }, mulberry(s));
+          const r = PLAN_ENGINE.resolve(ctx, out, "m0D");
+          if (r && r.meal) { filled++; if (r.meal.id === "r-sweet-chili-salmon") fav++; else other.push(r.meal.id); }
+        }
+        return { filled, fav, other: other.slice(0, 5) };
+      }, MULBERRY);
+      assert(res.filled === 50, "single-protein salmon week must fill Sunday dinner every seed, got " + res.filled);
+      assert(res.fav === 50, "the favourited salmon dinner must win every seed, got fav " + res.fav + "/50, others " + JSON.stringify(res.other));
+      await page.close();
+    });
+
+    await test("r14.v29c1.card-star-toggles-favourite-without-opening-picker", async () => {
+      const page = await freshPage(browser);
+      const tw = await page.evaluate(() => {
+        const tw = addDays(weekSunday(todayStr), 7);
+        state.plans[tw] = { f: {
+          pro: { v: ["chicken", "eggs"], ts: 1000 },
+          m0D: { v: { id: "r-shakshuka-hummus" }, ts: 1000 }
+        } };
+        saveLocal(); ui.tab = "plan"; ui.planWs = tw; ui.planStep = "week"; saveUi(); render(true);
+        return tw;
+      });
+      const btnSel = '.meal-card[data-k="m0D"] button[data-act="recipe-fav"]';
+      const before = await page.evaluate((sel) => {
+        const b = document.querySelector(sel);
+        const r = b ? b.getBoundingClientRect() : null;
+        return { exists: !!b, w: r ? r.width : 0, h: r ? r.height : 0, label: b ? b.getAttribute("aria-label") : null };
+      }, btnSel);
+      assert(before.exists, "the Sunday dinner card must carry a favourite toggle");
+      assert(before.w >= 44 && before.h >= 44, "favourite tap target must be >=44px, got " + before.w + "x" + before.h);
+      assert(before.label && before.label.length > 0, "favourite toggle must carry a screen-reader label");
+      await click29c(page, btnSel);
+      const starred = await page.evaluate(() => ({ fav: getSetting("recipeFav"), pickerOpen: document.getElementById("mealPickerDlg").open }));
+      assert(starred.fav && starred.fav["r-shakshuka-hummus"] === true, "tapping the card star must favourite the recipe, got " + JSON.stringify(starred.fav));
+      assert(!starred.pickerOpen, "tapping the card star must not open the meal picker");
+      await click29c(page, btnSel);
+      const unstarred = await page.evaluate(() => getSetting("recipeFav"));
+      assert(!unstarred || !unstarred["r-shakshuka-hummus"], "tapping the card star again must unfavourite, got " + JSON.stringify(unstarred));
+      await page.evaluate((tw) => { delete state.plans[tw]; saveLocal(); }, tw);
+      await page.close();
+    });
+
+    await test("r14.v29c1.picker-star-toggles-favourite", async () => {
+      const page = await freshPage(browser);
+      const tw = await page.evaluate(() => {
+        const tw = addDays(weekSunday(todayStr), 7);
+        state.plans[tw] = { f: {
+          pro: { v: ["chicken", "eggs"], ts: 1000 },
+          m0D: { v: { id: "r-shakshuka-hummus" }, ts: 1000 }
+        } };
+        saveLocal(); ui.tab = "plan"; ui.planWs = tw; ui.planStep = "week"; saveUi(); render(true);
+        return tw;
+      });
+      await page.evaluate(() => document.querySelector('.meal-card[data-k="m0D"]').click());
+      await wait(350);
+      const rowSel = '#mpList button[data-act="recipe-fav"][data-id="r-shakshuka-hummus"]';
+      const rowExists = await page.evaluate((sel) => !!document.querySelector(sel), rowSel);
+      assert(rowExists, "the picker must carry a favourite toggle on each recipe row");
+      await click29c(page, rowSel);
+      const after = await page.evaluate(() => ({ fav: getSetting("recipeFav"), pickerOpen: document.getElementById("mealPickerDlg").open }));
+      assert(after.fav && after.fav["r-shakshuka-hummus"] === true, "tapping the picker star must favourite the recipe, got " + JSON.stringify(after.fav));
+      assert(after.pickerOpen, "tapping the picker star must leave the picker open");
+      await page.evaluate(() => { const d = document.getElementById("mealPickerDlg"); if (d && d.open) d.close(); });
+      await page.evaluate((tw) => { delete state.plans[tw]; saveLocal(); }, tw);
+      await page.close();
+    });
+  }
 } finally {
   await browser.close();
 }

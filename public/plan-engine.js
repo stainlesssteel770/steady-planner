@@ -225,6 +225,19 @@
     });
   }
 
+  /* v29c item 1: favourite-first partitions for one protein's candidate
+     list — favourites first, everything else after, order otherwise
+     untouched. The caller picks from the first non-empty partition, so a
+     favourite is picked whenever one is available for that protein/slot
+     and not already used (the used filter in candidates() still applies).
+     Item 3 refines this into the variety-aware ordering. */
+  function orderFavFirst(list, ctx) {
+    var fav = (ctx && ctx.recipeFav) || {};
+    var favs = [], rest = [];
+    list.forEach(function (mm) { if (fav[mm.id]) favs.push(mm); else rest.push(mm); });
+    return [favs, rest];
+  }
+
   function generate(ctx, cells, rand) {
     rand = rand || Math.random;
     var v = cellVals(cells), out = {};
@@ -336,7 +349,12 @@
               var hv = list.filter(function (mm) { return !mm.light; });
               if (strictPref) list = hv; else if (hv.length) list = hv;
             }
-            if (list.length) return pickFrom(list, rand);
+            /* v29c item 1: pick from the first non-empty favourite
+               partition, not from the whole list. */
+            if (list.length) {
+              var parts = orderFavFirst(list, ctx);
+              for (var pi = 0; pi < parts.length; pi++) if (parts[pi].length) return pickFrom(parts[pi], rand);
+            }
           }
         }
       }

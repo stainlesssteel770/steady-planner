@@ -164,11 +164,11 @@ function planCtx(week) {
     if (NINEDAYS[dt4]) nine[d4] = true;
     if (YOMTOV[addDays(dt4, 1)] === "Yom Kippur") erevYK[d4] = true;
   }
-  return { week: week, today: todayStr, rest: rest, pre: pre, yomtov: yt, fast: fast, tisha: tisha, nine: nine, erevYK: erevYK, excl: getSetting("proteinExcl") || {}, picky: !!getSetting("pickyMode") };
+  return { week: week, today: todayStr, rest: rest, pre: pre, yomtov: yt, fast: fast, tisha: tisha, nine: nine, erevYK: erevYK, excl: getSetting("proteinExcl") || {}, picky: !!getSetting("pickyMode"), recipeFav: getSetting("recipeFav") || {} };
 }
 
 /* ---------------- settings ---------------- */
-var SETTING_DEFAULTS = { stepGoal: 7500, workoutTarget: 3, workoutLevel: 0, workoutRounds: 3, prepDay: 0, proteinExcl: {}, pickyMode: false };
+var SETTING_DEFAULTS = { stepGoal: 7500, workoutTarget: 3, workoutLevel: 0, workoutRounds: 3, prepDay: 0, proteinExcl: {}, pickyMode: false, recipeFav: {} };
 function getSetting(name) {
   var c = state.settings && state.settings.f ? state.settings.f[name] : null;
   return c && c.v !== null && c.v !== undefined ? c.v : SETTING_DEFAULTS[name];
@@ -1325,6 +1325,17 @@ function mealHowHTML(meal, lo) {
   }
   return esc(meal.how);
 }
+/* v29c item 1: favourite toggle button for a recipe meal. mini-btn is
+   already 44px, so the tap target meets the approval's >=44px rule. */
+function recipeFavBtnHTML(meal) {
+  var fav = !!((getSetting("recipeFav") || {})[meal.id]);
+  return '<button class="mini-btn' + (fav ? " on" : "") + '" data-act="recipe-fav" data-id="' + meal.id + '" aria-label="' + (fav ? "Remove " + esc(meal.n) + " from favourites" : "Save " + esc(meal.n) + " as a favourite") + '" aria-pressed="' + fav + '">' + (fav ? "⭐" : "☆") + '</button>';
+}
+function toggleRecipeFav(id) {
+  var cur = Object.assign({}, getSetting("recipeFav") || {});
+  if (cur[id]) delete cur[id]; else cur[id] = true;
+  opSettings("recipeFav", cur);
+}
 function mealCardHTML(ctx, cells, key) {
   var r = ENGINE.resolve(ctx, cells, key);
   if (!r) return "";
@@ -1340,7 +1351,7 @@ function mealCardHTML(ctx, cells, key) {
   /* v29a: recipe servings are display-only (P3); retired meals are marked. */
   if (r.meal.servings) hint += " · serves " + r.meal.servings;
   h += '<div class="meal-name">' + tagPill(r.meal.t) + ' ' + (r.lo ? "Leftovers: " : "") + esc(r.meal.n) + (r.meal.retired ? ' <span class="muted small">· old meal</span>' : "") + ' <span class="muted small">· ' + hint + '</span></div>' +
-    '<div class="meal-how">' + mealHowHTML(r.meal, r.lo) + '</div>';
+    '<div class="meal-how">' + mealHowHTML(r.meal, r.lo) + (r.meal.recipe && !r.lo ? ' ' + recipeFavBtnHTML(r.meal) : "") + '</div>';
   /* v28c item 3: a slot that fell back to the full pool says so. */
   var rawCell = cells[key];
   if (rawCell && rawCell.fb) h += '<div class="muted small">no simple option — showing regular</div>';
@@ -1854,11 +1865,15 @@ function openMealPicker(key) {
   }
   var html = "";
   html += loHTML;
-  list.forEach(function (meal) { html += mealBtn(meal, ""); });
+  /* v29c item 1: the favourite toggle sits beside the row button, not
+     inside it (a button inside a button is invalid HTML and browsers
+     split it) — the wrapper keeps the row's text and mp-opt count
+     exactly as before. */
+  list.forEach(function (meal) { html += '<div class="mp-row">' + mealBtn(meal, "") + recipeFavBtnHTML(meal) + '</div>'; });
   if (blockedList.length || loBlockedHTML) {
     html += '<p class="muted small mp-hint"><b>Not usually allowed:</b> ' + (slot === "L" ? "tonight is a dairy dinner" : "lunch today is meat") + '. You can still pick one — it saves, and the day will show the warning.</p>';
     html += loBlockedHTML;
-    blockedList.forEach(function (meal) { html += mealBtn(meal, " mp-opt-blocked"); });
+    blockedList.forEach(function (meal) { html += '<div class="mp-row">' + mealBtn(meal, " mp-opt-blocked") + recipeFavBtnHTML(meal) + '</div>'; });
   }
   if (!list.length && !loHTML && !blockedList.length && !loBlockedHTML) html += '<p class="muted">No library meals match this slot with the week\'s proteins. Pick proteins first, or shuffle instead.</p>';
   html += '<button class="mp-opt" data-act="mp-clear"><span>Clear this slot</span></button>';
@@ -2283,6 +2298,14 @@ document.addEventListener("click", function (ev) {
     }
     return;
   }
+  /* v29c item 1: favourite toggle (card or picker row). opSettings
+     re-renders the plan, so a picker toggle also refreshes the picker
+     list itself to show the new star state. */
+  if (act === "recipe-fav") {
+    toggleRecipeFav(el.getAttribute("data-id"));
+    if (mpKey && document.getElementById("mealPickerDlg") && document.getElementById("mealPickerDlg").open) openMealPicker(mpKey);
+    return;
+  }
   if (act === "meal-pick") { openMealPicker(el.getAttribute("data-k")); return; }
   if (act === "mp-pick" || act === "mp-lo" || act === "mp-clear") {
     var weekM = currentPlanWeek(), cellsM = planCells(weekM), keyM = mpKey;
@@ -2640,6 +2663,20 @@ function sanitizeBackup(parsed) {
         }
       });
       c.v = kept;
+      return c;
+    }
+    /* v29c item 1: recipe favourites survive backup restore — keep only
+       true values keyed by real recipe ids (same pattern as proteinExcl). */
+    if (name === "recipeFav") {
+      if (!sbIsObj(c.v)) { fixed++; return null; }
+      var keptFav = {};
+      Object.keys(c.v).forEach(function (rid) {
+        if (c.v[rid] === true) {
+          if (PD.RECIPES && PD.RECIPES[rid]) keptFav[rid] = true;
+          else fixed++;
+        }
+      });
+      c.v = keptFav;
       return c;
     }
     /* v28c item 3: picky mode survives backup restore (same class of gap

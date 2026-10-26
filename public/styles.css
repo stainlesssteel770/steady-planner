@@ -357,6 +357,12 @@ dialog::backdrop { background: rgba(0,0,0,0.45); }
 .undo-toast button { background: none; border: none; color: inherit; font-weight: 800; text-decoration: underline; min-height: 44px; padding: 4px 6px; white-space: nowrap; }
 /* meal picker */
 .meal-card { cursor: pointer; }
+/* v29c item 1: favourite toggle beside a picker row, and next to the
+   recipe link on a meal card. mini-btn is already 44px. */
+.mp-row { display: flex; gap: 6px; align-items: center; }
+.mp-row .mp-opt { flex: 1 1 auto; min-width: 0; }
+.mp-row .mini-btn { flex: 0 0 auto; }
+.meal-how .mini-btn { margin-left: 8px; vertical-align: middle; }
 .mp-opt {
   display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
   min-height: 52px; padding: 10px 12px; margin: 6px 0; border: 1px solid var(--line);
