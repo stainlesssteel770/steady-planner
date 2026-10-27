@@ -146,6 +146,20 @@ function restName(date) {
 }
 function isRest(date) { return !!restName(date); }
 function isPreRest(date) { return !isRest(date) && isRest(addDays(date, 1)); }
+/* v29c item 3: "seen" for variety ordering — every recipe id in any saved
+   plan (past weeks included), computed at generation time from state.plans.
+   No new stored set, no migration. */
+function planSeenIds() {
+  var seen = {};
+  var plans = (state && state.plans) || {};
+  Object.keys(plans).forEach(function (wk) {
+    var f = plans[wk] && plans[wk].f ? plans[wk].f : {};
+    Object.keys(f).forEach(function (k) {
+      if (/^m\d[LD]$/.test(k) && f[k] && f[k].v && f[k].v.id) seen[f[k].v.id] = true;
+    });
+  });
+  return seen;
+}
 function planCtx(week) {
   var rest = {}, pre = {}, yt = {};
   for (var d = 0; d <= 6; d++) { var n = restName(addDays(week, d)); if (n) rest[d] = n; }
@@ -164,11 +178,11 @@ function planCtx(week) {
     if (NINEDAYS[dt4]) nine[d4] = true;
     if (YOMTOV[addDays(dt4, 1)] === "Yom Kippur") erevYK[d4] = true;
   }
-  return { week: week, today: todayStr, rest: rest, pre: pre, yomtov: yt, fast: fast, tisha: tisha, nine: nine, erevYK: erevYK, excl: getSetting("proteinExcl") || {}, picky: !!getSetting("pickyMode"), recipeFav: getSetting("recipeFav") || {} };
+  return { week: week, today: todayStr, rest: rest, pre: pre, yomtov: yt, fast: fast, tisha: tisha, nine: nine, erevYK: erevYK, excl: getSetting("proteinExcl") || {}, picky: !!getSetting("pickyMode"), recipeFav: getSetting("recipeFav") || {}, recipeNo: getSetting("recipeNo") || {}, variety: getSetting("variety"), seen: planSeenIds() };
 }
 
 /* ---------------- settings ---------------- */
-var SETTING_DEFAULTS = { stepGoal: 7500, workoutTarget: 3, workoutLevel: 0, workoutRounds: 3, prepDay: 0, proteinExcl: {}, pickyMode: false, recipeFav: {} };
+var SETTING_DEFAULTS = { stepGoal: 7500, workoutTarget: 3, workoutLevel: 0, workoutRounds: 3, prepDay: 0, proteinExcl: {}, pickyMode: false, recipeFav: {}, recipeNo: {}, variety: "mix" };
 function getSetting(name) {
   var c = state.settings && state.settings.f ? state.settings.f[name] : null;
   return c && c.v !== null && c.v !== undefined ? c.v : SETTING_DEFAULTS[name];
@@ -1334,7 +1348,26 @@ function recipeFavBtnHTML(meal) {
 function toggleRecipeFav(id) {
   var cur = Object.assign({}, getSetting("recipeFav") || {});
   if (cur[id]) delete cur[id]; else cur[id] = true;
+  var no = Object.assign({}, getSetting("recipeNo") || {});
+  var noChanged = false;
+  if (no[id]) { delete no[id]; noChanged = true; }
   opSettings("recipeFav", cur);
+  if (noChanged) opSettings("recipeNo", no);
+}
+/* v29c item 2: Not-again toggle button for a recipe meal. mini-btn is
+   already 44px, so the tap target meets the approval's >=44px rule. */
+function recipeNoBtnHTML(meal) {
+  var no = !!((getSetting("recipeNo") || {})[meal.id]);
+  return '<button class="mini-btn' + (no ? " on" : "") + '" data-act="recipe-no" data-id="' + meal.id + '" aria-label="' + (no ? "Allow " + esc(meal.n) + " again" : "Never show " + esc(meal.n) + " again") + '" aria-pressed="' + no + '">👎</button>';
+}
+function toggleRecipeNo(id) {
+  var cur = Object.assign({}, getSetting("recipeNo") || {});
+  if (cur[id]) delete cur[id]; else cur[id] = true;
+  var fav = Object.assign({}, getSetting("recipeFav") || {});
+  var favChanged = false;
+  if (fav[id]) { delete fav[id]; favChanged = true; }
+  opSettings("recipeNo", cur);
+  if (favChanged) opSettings("recipeFav", fav);
 }
 function mealCardHTML(ctx, cells, key) {
   var r = ENGINE.resolve(ctx, cells, key);
@@ -1351,7 +1384,7 @@ function mealCardHTML(ctx, cells, key) {
   /* v29a: recipe servings are display-only (P3); retired meals are marked. */
   if (r.meal.servings) hint += " · serves " + r.meal.servings;
   h += '<div class="meal-name">' + tagPill(r.meal.t) + ' ' + (r.lo ? "Leftovers: " : "") + esc(r.meal.n) + (r.meal.retired ? ' <span class="muted small">· old meal</span>' : "") + ' <span class="muted small">· ' + hint + '</span></div>' +
-    '<div class="meal-how">' + mealHowHTML(r.meal, r.lo) + (r.meal.recipe && !r.lo ? ' ' + recipeFavBtnHTML(r.meal) : "") + '</div>';
+    '<div class="meal-how">' + mealHowHTML(r.meal, r.lo) + (r.meal.recipe && !r.lo ? ' ' + recipeFavBtnHTML(r.meal) + ' ' + recipeNoBtnHTML(r.meal) : "") + '</div>';
   /* v28c item 3: a slot that fell back to the full pool says so. */
   var rawCell = cells[key];
   if (rawCell && rawCell.fb) h += '<div class="muted small">no simple option — showing regular</div>';
@@ -1849,6 +1882,9 @@ function openMealPicker(key) {
        "Not usually allowed" section (that section is for kashrus, not
        for proteins the user does not eat). */
     if (mpExcl[meal.p]) return false;
+    /* v29c item 2: Not-again recipes never appear in the picker either
+       (neither the main list nor the "Not usually allowed" section). */
+    if ((getSetting("recipeNo") || {})[meal.id]) return false;
     if (pros.indexOf(meal.p) < 0) return false;
     if (meal.s.indexOf(slot) < 0) return false;
     if (!mdGapP && pickerBlocked(meal.t, slot, otherTag)) { blockedList.push(meal); return false; }
@@ -1869,11 +1905,11 @@ function openMealPicker(key) {
      inside it (a button inside a button is invalid HTML and browsers
      split it) — the wrapper keeps the row's text and mp-opt count
      exactly as before. */
-  list.forEach(function (meal) { html += '<div class="mp-row">' + mealBtn(meal, "") + recipeFavBtnHTML(meal) + '</div>'; });
+  list.forEach(function (meal) { html += '<div class="mp-row">' + mealBtn(meal, "") + recipeFavBtnHTML(meal) + recipeNoBtnHTML(meal) + '</div>'; });
   if (blockedList.length || loBlockedHTML) {
     html += '<p class="muted small mp-hint"><b>Not usually allowed:</b> ' + (slot === "L" ? "tonight is a dairy dinner" : "lunch today is meat") + '. You can still pick one — it saves, and the day will show the warning.</p>';
     html += loBlockedHTML;
-    blockedList.forEach(function (meal) { html += '<div class="mp-row">' + mealBtn(meal, " mp-opt-blocked") + recipeFavBtnHTML(meal) + '</div>'; });
+    blockedList.forEach(function (meal) { html += '<div class="mp-row">' + mealBtn(meal, " mp-opt-blocked") + recipeFavBtnHTML(meal) + recipeNoBtnHTML(meal) + '</div>'; });
   }
   if (!list.length && !loHTML && !blockedList.length && !loBlockedHTML) html += '<p class="muted">No library meals match this slot with the week\'s proteins. Pick proteins first, or shuffle instead.</p>';
   html += '<button class="mp-opt" data-act="mp-clear"><span>Clear this slot</span></button>';
@@ -2202,6 +2238,14 @@ document.addEventListener("click", function (ev) {
     renderSetProteins();
     return;
   }
+  /* v29c item 2: Settings "Not again" Undo restores eligibility at once. */
+  if (act === "set-recipe-no-undo") {
+    var noU = Object.assign({}, getSetting("recipeNo") || {});
+    delete noU[el.getAttribute("data-id")];
+    opSettings("recipeNo", noU);
+    renderSetRecipeNo();
+    return;
+  }
   if (act === "srv") {
     var weekS = currentPlanWeek(), cellsS = planCells(weekS), kS = el.getAttribute("data-k");
     var curS = ENGINE.servingsOf(cellsS)[kS === "srvB" ? "B" : kS === "srvL" ? "L" : "D"];
@@ -2303,6 +2347,13 @@ document.addEventListener("click", function (ev) {
      list itself to show the new star state. */
   if (act === "recipe-fav") {
     toggleRecipeFav(el.getAttribute("data-id"));
+    if (mpKey && document.getElementById("mealPickerDlg") && document.getElementById("mealPickerDlg").open) openMealPicker(mpKey);
+    return;
+  }
+  /* v29c item 2: Not-again toggle (card or picker row); picker refresh
+     mirrors the favourite branch so the row state updates. */
+  if (act === "recipe-no") {
+    toggleRecipeNo(el.getAttribute("data-id"));
     if (mpKey && document.getElementById("mealPickerDlg") && document.getElementById("mealPickerDlg").open) openMealPicker(mpKey);
     return;
   }
@@ -2509,6 +2560,21 @@ function renderSetProteins() {
   var msgEl = document.getElementById("setProteinMsg");
   if (msgEl) msgEl.textContent = setProteinWarn || (avail + " of " + PD.PROTEINS.length + " proteins · exclusions apply to new plans and re-picks");
 }
+/* v29c item 2: Settings "Not again" list — excluded recipes with an
+   Undo button per row; empty state when none are excluded. */
+function renderSetRecipeNo() {
+  var listEl = document.getElementById("setRecipeNoList");
+  if (!listEl) return;
+  var no = getSetting("recipeNo") || {};
+  var ids = Object.keys(no).filter(function (id) { return no[id] && PD.RECIPES && PD.RECIPES[id]; });
+  if (!ids.length) { listEl.innerHTML = '<p class="muted small">No recipes excluded.</p>'; return; }
+  var h = '';
+  ids.forEach(function (id) {
+    h += '<div class="toggle-row"><div><b>' + esc(PD.RECIPES[id].n) + '</b></div>' +
+      '<button type="button" class="btn" data-act="set-recipe-no-undo" data-id="' + id + '">Undo</button></div>';
+  });
+  listEl.innerHTML = h;
+}
 function openSettings() {
   var dlg = document.getElementById("settingsDlg");
   var se0 = document.getElementById("setError");
@@ -2520,9 +2586,11 @@ function openSettings() {
   document.getElementById("setCoffeeOn").checked = !!getSetting("coffeeOn");
   document.getElementById("setAlcoholOn").checked = !!getSetting("alcoholOn");
   document.getElementById("setPickyMode").checked = !!getSetting("pickyMode");
+  document.getElementById("setVariety").value = getSetting("variety");
   setProteinStaged = Object.assign({}, getSetting("proteinExcl") || {});
   setProteinWarn = "";
   renderSetProteins();
+  renderSetRecipeNo();
   var rn = restName(selDate), ov = getDayF(selDate, "restOverride");
   document.getElementById("setRestLabel").textContent = "Rest day for " + longDate(selDate) + ": " + (rn || "Normal day");
   var ctl = "";
@@ -2555,12 +2623,14 @@ document.getElementById("setSave").addEventListener("click", function (ev) {
   var cfChecked = document.getElementById("setCoffeeOn").checked;
   var alChecked = document.getElementById("setAlcoholOn").checked;
   var pkChecked = document.getElementById("setPickyMode").checked;
+  var vyRaw = document.getElementById("setVariety").value;
   var errs = [];
   var sg = null, wt = null, wg = null, badField = null;
   if (sgRaw !== "") { sg = Number(sgRaw); if (!(sg >= 1000 && sg <= 40000)) { errs.push("Step goal must be between 1,000 and 40,000."); badField = "setStepGoal"; } }
   if (wtRaw !== "") { wt = Number(wtRaw); if (!Number.isInteger(wt)) { errs.push("Workouts per week must be a whole number."); if (!badField) badField = "setWorkoutTarget"; } else if (!(wt >= 1 && wt <= 7)) { errs.push("Workouts per week must be between 1 and 7."); if (!badField) badField = "setWorkoutTarget"; } }
   if (wgRaw !== "") { wg = Number(wgRaw); if (!Number.isInteger(wg)) { errs.push("Water goal must be a whole number."); if (!badField) badField = "setWaterGoal"; } else if (!(wg >= 1 && wg <= 100)) { errs.push("Water goal must be between 1 and 100 cups."); if (!badField) badField = "setWaterGoal"; } }
   if (wuRaw !== "cups" && wuRaw !== "oz") { errs.push("Water unit must be cups or ounces."); if (!badField) badField = "setWaterUnit"; }
+  if (vyRaw !== "mix" && vyRaw !== "familiar") { errs.push("Variety must be Mix it up or Keep it familiar."); if (!badField) badField = "setVariety"; }
   if (errs.length) { setErr(errs.join(" "), badField); if (ev) ev.preventDefault(); return; }
   setErr("");
   if (sg !== null && sg !== getSetting("stepGoal")) opSettings("stepGoal", sg);
@@ -2570,6 +2640,7 @@ document.getElementById("setSave").addEventListener("click", function (ev) {
   if (cfChecked !== !!getSetting("coffeeOn")) opSettings("coffeeOn", cfChecked);
   if (alChecked !== !!getSetting("alcoholOn")) opSettings("alcoholOn", alChecked);
   if (pkChecked !== !!getSetting("pickyMode")) opSettings("pickyMode", pkChecked);
+  if (vyRaw !== getSetting("variety")) opSettings("variety", vyRaw);
   /* v28a item 1: staged protein exclusions save with the dialog (guard
      re-checked here; the toggles already refuse invalid states). */
   if (setProteinStaged) {
@@ -2679,10 +2750,29 @@ function sanitizeBackup(parsed) {
       c.v = keptFav;
       return c;
     }
+    /* v29c item 2: Not-again survives backup restore, same pattern. */
+    if (name === "recipeNo") {
+      if (!sbIsObj(c.v)) { fixed++; return null; }
+      var keptNo = {};
+      Object.keys(c.v).forEach(function (rid) {
+        if (c.v[rid] === true) {
+          if (PD.RECIPES && PD.RECIPES[rid]) keptNo[rid] = true;
+          else fixed++;
+        }
+      });
+      c.v = keptNo;
+      return c;
+    }
     /* v28c item 3: picky mode survives backup restore (same class of gap
        as the v28b sanitizer fix — a new setting needs its branch). */
     if (name === "pickyMode") {
       if (c.v === true || c.v === false) return c;
+      fixed++; return null;
+    }
+    /* v29c item 3: variety is mix/familiar only; anything else drops and
+       getSetting falls back to the "mix" default. */
+    if (name === "variety") {
+      if (c.v === "mix" || c.v === "familiar") return c;
       fixed++; return null;
     }
     /* v28b: coffee/alcohol/water-unit survive backup restore — they were

@@ -211,12 +211,17 @@
     return (typeof n === "number" && isFinite(n)) ? Math.max(5, Math.min(120, Math.round(n))) : 30;
   }
 
-  function candidates(P, slotLetter, used, longCount, relaxUsed, relaxLong, longMin) {
+  function candidates(P, slotLetter, used, longCount, relaxUsed, relaxLong, longMin, noSet) {
     return Object.keys(MEALS).map(function (id) { return MEALS[id]; }).filter(function (meal) {
       /* v29a: retired built-in meals never appear in generation, shuffle,
          or replace — candidates() is the funnel for all three. Saved weeks
          still resolve retired ids through resolve(), not through here. */
       if (meal.retired) return false;
+      /* v29c item 2: a Not-again recipe never appears here either, so no
+         generation, shuffle, or replace path can resurrect it — an empty
+         pool falls through to the cross-protein path (or an empty slot),
+         never to a Not-again recipe. */
+      if (noSet && noSet[meal.id]) return false;
       if (P.indexOf(meal.p) < 0) return false;
       if (meal.s.indexOf(slotLetter) < 0) return false;
       if (!relaxUsed && used[meal.id]) return false;
@@ -225,17 +230,27 @@
     });
   }
 
-  /* v29c item 1: favourite-first partitions for one protein's candidate
-     list — favourites first, everything else after, order otherwise
-     untouched. The caller picks from the first non-empty partition, so a
-     favourite is picked whenever one is available for that protein/slot
-     and not already used (the used filter in candidates() still applies).
-     Item 3 refines this into the variety-aware ordering. */
-  function orderFavFirst(list, ctx) {
+  /* v29c item 3: variety-aware partitions for one protein's candidate
+     list, applied after all hard filters. Mix it up (default): unseen,
+     then favourites, then seen non-favourites. Keep it familiar:
+     favourites, then seen, then unseen. A favourite beats a merely-seen
+     recipe in both modes; the mode decides favourite-vs-unseen lead.
+     The caller picks from the first non-empty partition, so the lead
+     partition wins whenever it holds a candidate for that protein/slot
+     not already used (the used filter in candidates() still applies).
+     "Seen" is the ctx.seen set (ids in any saved plan). */
+  function orderByVariety(list, ctx) {
     var fav = (ctx && ctx.recipeFav) || {};
-    var favs = [], rest = [];
-    list.forEach(function (mm) { if (fav[mm.id]) favs.push(mm); else rest.push(mm); });
-    return [favs, rest];
+    var seen = (ctx && ctx.seen) || {};
+    var variety = (ctx && ctx.variety) || "mix";
+    var unseen = [], favs = [], seenNonFav = [];
+    list.forEach(function (mm) {
+      if (fav[mm.id]) favs.push(mm);
+      else if (seen[mm.id]) seenNonFav.push(mm);
+      else unseen.push(mm);
+    });
+    if (variety === "familiar") return [favs, seenNonFav, unseen];
+    return [unseen, favs, seenNonFav];
   }
 
   function generate(ctx, cells, rand) {
@@ -326,7 +341,7 @@
           var strictPref = passes[pass];
           for (var pi = 0; pi < proteinOrder.length; pi++) {
             var p = proteinOrder[pi];
-            var list = candidates([p], slotLetter, used, longCount, relaxLevels[lvl][0], relaxLevels[lvl][1], longMinG);
+            var list = candidates([p], slotLetter, used, longCount, relaxLevels[lvl][0], relaxLevels[lvl][1], longMinG, ctx && ctx.recipeNo);
             /* v28c item 3: picky phase — only simple meals are candidates. */
             if (simpleOnly) list = list.filter(function (mm) { return mm.simple; });
             if (opts.excludeTag) {
@@ -349,10 +364,10 @@
               var hv = list.filter(function (mm) { return !mm.light; });
               if (strictPref) list = hv; else if (hv.length) list = hv;
             }
-            /* v29c item 1: pick from the first non-empty favourite
+            /* v29c item 3: pick from the first non-empty variety
                partition, not from the whole list. */
             if (list.length) {
-              var parts = orderFavFirst(list, ctx);
+              var parts = orderByVariety(list, ctx);
               for (var pi = 0; pi < parts.length; pi++) if (parts[pi].length) return pickFrom(parts[pi], rand);
             }
           }
@@ -533,7 +548,7 @@
     var tonight = out["m" + dow + "D"], tonightMeal = tonight && tonight.id ? MEALS[tonight.id] : null;
     var levels = [[false, false], [true, false], [true, true]];
     for (var lvl = 0; lvl < levels.length; lvl++) {
-      var list = candidates(P, "L", used, 99, levels[lvl][0], levels[lvl][1], longMinOf(out));
+      var list = candidates(P, "L", used, 99, levels[lvl][0], levels[lvl][1], longMinOf(out), ctx && ctx.recipeNo);
       if (tonightMeal && cellVals(out).mdGap !== true) {
         var nonB = list.filter(function (mm) { return !pickerBlocked(mm.t, "L", tonightMeal.t); });
         if (nonB.length) list = nonB;
@@ -570,7 +585,7 @@
       var r = resolve(ctx, cells, s.key);
       if (r && r.meal) used[r.meal.id] = true;
     });
-    var all = candidates(P, slotLetter, {}, 99, true, true, longMinOf(cells)).filter(function (mm) { return !cur || !cur.meal || mm.id !== cur.meal.id; });
+    var all = candidates(P, slotLetter, {}, 99, true, true, longMinOf(cells), ctx && ctx.recipeNo).filter(function (mm) { return !cur || !cur.meal || mm.id !== cur.meal.id; });
     /* Batch 4 item 1: HARD same-day meat/dairy filters — a candidate the
        picker would hide is never served by the dice, in either slot. If a
        filter empties the pool, the current meal stays and the caller is

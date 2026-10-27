@@ -13,6 +13,7 @@
              v29a (recipe library: generation uses recipes only, old meals render marked)
    Usage: node test-r14.mjs [section|all]   (WIDTH env, default 390) */
 import puppeteer from "puppeteer-core";
+import fs from "node:fs";
 
 const CHROME = process.env.CHROME_PATH || "/home/hatch/.cache/puppeteer/chrome/linux-155.0.8059.84/chrome-linux64/chrome";
 const WIDTH = +(process.env.WIDTH || 390);
@@ -2369,7 +2370,10 @@ try {
       const page = await freshPage(browser);
       const res = await page.evaluate((mulberrySrc) => {
         const mulberry = eval(mulberrySrc);
-        const ctx = { week: "2026-10-18", today: "2026-10-18", rest: {}, pre: {}, recipeFav: { "r-sweet-chili-salmon": true } };
+        /* v29c item 3 re-pin: under mix ordering an unseen recipe leads a
+           favourite, so this favourite-wins case runs in familiar mode
+           (favourites lead); the v29c3 mix tests pin the mix case. */
+        const ctx = { week: "2026-10-18", today: "2026-10-18", rest: {}, pre: {}, variety: "familiar", recipeFav: { "r-sweet-chili-salmon": true } };
         let filled = 0, fav = 0, other = [];
         for (let s = 1; s <= 50; s++) {
           const out = PLAN_ENGINE.generate(ctx, { pro: ["salmon"] }, mulberry(s));
@@ -2436,6 +2440,224 @@ try {
       assert(after.pickerOpen, "tapping the picker star must leave the picker open");
       await page.evaluate(() => { const d = document.getElementById("mealPickerDlg"); if (d && d.open) d.close(); });
       await page.evaluate((tw) => { delete state.plans[tw]; saveLocal(); }, tw);
+      await page.close();
+    });
+
+    await test("r14.v29c2.notagain-absent-from-generate-and-shuffle", async () => {
+      const page = await freshPage(browser);
+      const res = await page.evaluate((mulberrySrc) => {
+        const mulberry = eval(mulberrySrc);
+        const ctx = { week: "2026-10-18", today: "2026-10-18", rest: {}, pre: {}, recipeNo: { "r-sweet-chili-salmon": true } };
+        let genSeen = 0, genFilled = 0, shufSeen = 0, shufFilled = 0;
+        for (let s = 1; s <= 100; s++) {
+          const out = PLAN_ENGINE.generate(ctx, { pro: ["salmon"] }, mulberry(s));
+          Object.keys(out).forEach((k) => { const c = out[k]; if (c && c.id) { genFilled++; if (c.id === "r-sweet-chili-salmon") genSeen++; } });
+        }
+        const cells = { pro: ["salmon"], m0D: { id: "r-dry-rub-salmon" } };
+        for (let s = 1; s <= 100; s++) {
+          const out = PLAN_ENGINE.shuffleOne(ctx, JSON.parse(JSON.stringify(cells)), "m0D", mulberry(s));
+          const c = out.m0D;
+          if (c && c.id) { shufFilled++; if (c.id === "r-sweet-chili-salmon") shufSeen++; }
+        }
+        return { genSeen, genFilled, shufSeen, shufFilled };
+      }, MULBERRY);
+      assert(res.genFilled > 0, "salmon generation must still fill slots with one recipe excluded, got " + res.genFilled);
+      assert(res.genSeen === 0, "a Not-again recipe must never appear in generation, seen " + res.genSeen + " times");
+      assert(res.shufSeen === 0, "a Not-again recipe must never appear in shuffle, seen " + res.shufSeen + " times (filled " + res.shufFilled + ")");
+      await page.close();
+    });
+
+    await test("r14.v29c2.starred-and-notagain-notagain-wins", async () => {
+      const page = await freshPage(browser);
+      const res = await page.evaluate((mulberrySrc) => {
+        const mulberry = eval(mulberrySrc);
+        const ctx = { week: "2026-10-18", today: "2026-10-18", rest: {}, pre: {}, recipeFav: { "r-sweet-chili-salmon": true }, recipeNo: { "r-sweet-chili-salmon": true }, variety: "familiar" };
+        let seen = 0, filled = 0;
+        for (let s = 1; s <= 100; s++) {
+          const out = PLAN_ENGINE.generate(ctx, { pro: ["salmon"] }, mulberry(s));
+          Object.keys(out).forEach((k) => { const c = out[k]; if (c && c.id) { filled++; if (c.id === "r-sweet-chili-salmon") seen++; } });
+        }
+        return { seen, filled };
+      }, MULBERRY);
+      assert(res.filled > 0, "generation must still fill with the starred+Not-again recipe excluded, got " + res.filled);
+      assert(res.seen === 0, "Not-again must win over a star: the recipe must never appear, seen " + res.seen + " times");
+      await page.close();
+    });
+
+    await test("r14.v29c2.card-no-mutual-exclusion-and-settings-undo", async () => {
+      const page = await freshPage(browser);
+      const tw = await page.evaluate(() => {
+        const tw = addDays(weekSunday(todayStr), 7);
+        state.plans[tw] = { f: {
+          pro: { v: ["chicken", "eggs"], ts: 1000 },
+          m0D: { v: { id: "r-shakshuka-hummus" }, ts: 1000 }
+        } };
+        saveLocal(); ui.tab = "plan"; ui.planWs = tw; ui.planStep = "week"; saveUi(); render(true);
+        return tw;
+      });
+      const favSel = '.meal-card[data-k="m0D"] button[data-act="recipe-fav"]';
+      const noSel = '.meal-card[data-k="m0D"] button[data-act="recipe-no"]';
+      const noExists = await page.evaluate((sel) => {
+        const b = document.querySelector(sel);
+        const r = b ? b.getBoundingClientRect() : null;
+        return { exists: !!b, w: r ? r.width : 0, h: r ? r.height : 0, label: b ? b.getAttribute("aria-label") : null };
+      }, noSel);
+      assert(noExists.exists, "the Sunday dinner card must carry a Not-again toggle");
+      assert(noExists.w >= 44 && noExists.h >= 44, "Not-again tap target must be >=44px, got " + noExists.w + "x" + noExists.h);
+      assert(noExists.label && noExists.label.length > 0, "Not-again toggle must carry a screen-reader label");
+      await click29c(page, favSel);
+      await click29c(page, noSel);
+      const both = await page.evaluate(() => ({ fav: getSetting("recipeFav"), no: getSetting("recipeNo") }));
+      assert(both.no && both.no["r-shakshuka-hummus"] === true, "tapping Not-again must exclude the recipe, got " + JSON.stringify(both.no));
+      assert(!both.fav || !both.fav["r-shakshuka-hummus"], "tapping Not-again must clear the star (mutual exclusion), got " + JSON.stringify(both.fav));
+      await click29c(page, favSel);
+      const back = await page.evaluate(() => ({ fav: getSetting("recipeFav"), no: getSetting("recipeNo") }));
+      assert(back.fav && back.fav["r-shakshuka-hummus"] === true, "tapping the star again must favourite, got " + JSON.stringify(back.fav));
+      assert(!back.no || !back.no["r-shakshuka-hummus"], "tapping the star must clear Not-again (mutual exclusion), got " + JSON.stringify(back.no));
+      await click29c(page, noSel);
+      await page.evaluate(() => document.getElementById("gearBtn").click());
+      await wait(350);
+      const listText = await page.evaluate(() => {
+        const el = document.getElementById("setRecipeNoList");
+        return el ? el.textContent.replace(/\s+/g, " ").trim() : null;
+      });
+      assert(listText && listText.indexOf("Shakshuka") >= 0, "Settings must list the Not-again recipe, got " + JSON.stringify(listText));
+      await page.evaluate(() => document.querySelector('#setRecipeNoList button[data-act="set-recipe-no-undo"]').click());
+      await wait(350);
+      const undone = await page.evaluate(() => getSetting("recipeNo"));
+      assert(!undone || !undone["r-shakshuka-hummus"], "Settings Undo must restore eligibility, got " + JSON.stringify(undone));
+      await page.evaluate(() => { const d = document.getElementById("settingsDlg"); if (d && d.open) d.close(); });
+      await page.evaluate((tw) => { delete state.plans[tw]; saveLocal(); }, tw);
+      await page.close();
+    });
+
+    await test("r14.v29c2.picker-excludes-notagain", async () => {
+      const page = await freshPage(browser);
+      const tw = await page.evaluate(() => {
+        const tw = addDays(weekSunday(todayStr), 7);
+        state.plans[tw] = { f: {
+          pro: { v: ["chicken", "salmon"], ts: 1000 },
+          m0L: { v: { id: "r-chicken-shawarma-salad" }, ts: 1000 }
+        } };
+        saveLocal(); ui.tab = "plan"; ui.planWs = tw; ui.planStep = "week"; saveUi(); render(true);
+        return tw;
+      });
+      await page.evaluate(() => { opSettings("recipeNo", { "r-sweet-chili-salmon": true }); });
+      await page.evaluate(() => document.querySelector('.meal-card[data-k="m0L"]').click());
+      await wait(350);
+      const ids = await page.evaluate(() => Array.from(document.querySelectorAll("#mpList .mp-opt[data-id]")).map((b) => b.getAttribute("data-id")));
+      assert(ids.indexOf("r-sweet-chili-salmon") < 0, "the picker must never list a Not-again recipe, got " + JSON.stringify(ids));
+      assert(ids.indexOf("r-dry-rub-salmon") >= 0, "other salmon lunches must still list, got " + JSON.stringify(ids));
+      await page.evaluate(() => { const d = document.getElementById("mealPickerDlg"); if (d && d.open) d.close(); });
+      await page.evaluate(() => { opSettings("recipeNo", {}); });
+      await page.evaluate((tw) => { delete state.plans[tw]; saveLocal(); }, tw);
+      await page.close();
+    });
+
+    await test("r14.v29c3.mix-unseen-first", async () => {
+      const page = await freshPage(browser);
+      const res = await page.evaluate((mulberrySrc) => {
+        const mulberry = eval(mulberrySrc);
+        const ctx = { week: "2026-10-18", today: "2026-10-18", rest: {}, pre: {}, variety: "mix", seen: { "r-dry-rub-salmon": true, "r-sweet-chili-salmon": true }, recipeFav: {} };
+        let picks = {};
+        for (let s = 1; s <= 100; s++) {
+          const out = PLAN_ENGINE.generate(ctx, { pro: ["salmon"] }, mulberry(s));
+          if (out.m0D && out.m0D.id) picks[out.m0D.id] = (picks[out.m0D.id] || 0) + 1;
+        }
+        return picks;
+      }, MULBERRY);
+      assert(res["r-nish-nosh-salmon"] === 100, "mix must pick the only unseen salmon for m0D every time, got " + JSON.stringify(res));
+      await page.close();
+    });
+
+    await test("r14.v29c3.familiar-favourite-first", async () => {
+      const page = await freshPage(browser);
+      const res = await page.evaluate((mulberrySrc) => {
+        const mulberry = eval(mulberrySrc);
+        const ctx = { week: "2026-10-18", today: "2026-10-18", rest: {}, pre: {}, variety: "familiar", seen: { "r-dry-rub-salmon": true, "r-sweet-chili-salmon": true }, recipeFav: { "r-sweet-chili-salmon": true } };
+        let picks = {};
+        for (let s = 1; s <= 100; s++) {
+          const out = PLAN_ENGINE.generate(ctx, { pro: ["salmon"] }, mulberry(s));
+          if (out.m0D && out.m0D.id) picks[out.m0D.id] = (picks[out.m0D.id] || 0) + 1;
+        }
+        return picks;
+      }, MULBERRY);
+      assert(res["r-sweet-chili-salmon"] === 100, "familiar must pick the favourite salmon for m0D every time, got " + JSON.stringify(res));
+      await page.close();
+    });
+
+    await test("r14.v29c3.mix-favourite-beats-seen", async () => {
+      const page = await freshPage(browser);
+      const res = await page.evaluate((mulberrySrc) => {
+        const mulberry = eval(mulberrySrc);
+        const ctx = { week: "2026-10-18", today: "2026-10-18", rest: {}, pre: {}, variety: "mix", seen: { "r-dry-rub-salmon": true, "r-sweet-chili-salmon": true, "r-nish-nosh-salmon": true }, recipeFav: { "r-sweet-chili-salmon": true } };
+        let picks = {};
+        for (let s = 1; s <= 100; s++) {
+          const out = PLAN_ENGINE.generate(ctx, { pro: ["salmon"] }, mulberry(s));
+          if (out.m0D && out.m0D.id) picks[out.m0D.id] = (picks[out.m0D.id] || 0) + 1;
+        }
+        return picks;
+      }, MULBERRY);
+      assert(res["r-sweet-chili-salmon"] === 100, "mix with nothing unseen must still pick the favourite over seen non-favourites, got " + JSON.stringify(res));
+      await page.close();
+    });
+
+    await test("r14.v29c3.familiar-seen-beats-unseen", async () => {
+      const page = await freshPage(browser);
+      const res = await page.evaluate((mulberrySrc) => {
+        const mulberry = eval(mulberrySrc);
+        const ctx = { week: "2026-10-18", today: "2026-10-18", rest: {}, pre: {}, variety: "familiar", seen: { "r-dry-rub-salmon": true }, recipeFav: {} };
+        let picks = {};
+        for (let s = 1; s <= 100; s++) {
+          const out = PLAN_ENGINE.generate(ctx, { pro: ["salmon"] }, mulberry(s));
+          if (out.m0D && out.m0D.id) picks[out.m0D.id] = (picks[out.m0D.id] || 0) + 1;
+        }
+        return picks;
+      }, MULBERRY);
+      assert(res["r-dry-rub-salmon"] === 100, "familiar with no favourite must pick the seen salmon over unseen ones, got " + JSON.stringify(res));
+      await page.close();
+    });
+
+    await test("r14.v29c3.variety-ui-default-and-sanitizer", async () => {
+      const page = await freshPage(browser);
+      await page.evaluate(() => { openSettings(); });
+      await wait(200);
+      const hasCtl = await page.evaluate(() => !!document.getElementById("setVariety"));
+      assert(hasCtl, "Settings must carry a Variety control");
+      await page.evaluate(() => { document.getElementById("setVariety").value = "familiar"; document.getElementById("setSave").click(); });
+      await wait(200);
+      let v = await page.evaluate(() => getSetting("variety"));
+      assert(v === "familiar", "saving familiar must persist, got " + v);
+      fs.mkdirSync("/tmp/testbed", { recursive: true });
+      const old = { settings: { f: {} }, days: {}, plans: {} };
+      const p1 = "/tmp/testbed/v29c3-old.json";
+      fs.writeFileSync(p1, JSON.stringify(old));
+      await (await page.$("#restoreInput")).uploadFile(p1);
+      await wait(700);
+      v = await page.evaluate(() => getSetting("variety"));
+      assert(v === "mix", "an old backup without variety must default to mix, got " + v);
+      const bad = { settings: { f: { variety: { v: "bogus", ts: 5 }, recipeFav: { v: { "r-nope": true, "r-sweet-chili-salmon": true }, ts: 5 }, recipeNo: { v: { "r-nope": true }, ts: 5 } } }, days: {}, plans: {} };
+      const p2 = "/tmp/testbed/v29c3-bad.json";
+      fs.writeFileSync(p2, JSON.stringify(bad));
+      await (await page.$("#restoreInput")).uploadFile(p2);
+      await wait(700);
+      const got = await page.evaluate(() => ({ v: getSetting("variety"), f: getSetting("recipeFav"), n: getSetting("recipeNo") }));
+      assert(got.v === "mix", "bad variety must sanitize to mix, got " + got.v);
+      assert(got.f["r-sweet-chili-salmon"] === true && !got.f["r-nope"], "unknown fav ids must drop, real ones stay, got " + JSON.stringify(got.f));
+      assert(!got.n["r-nope"], "unknown Not-again ids must drop, got " + JSON.stringify(got.n));
+      await page.evaluate(() => { opSettings("variety", "mix"); opSettings("recipeFav", {}); opSettings("recipeNo", {}); });
+      await page.close();
+    });
+
+    await test("r14.v29c4.all-recipe-urls-https", async () => {
+      const page = await freshPage(browser);
+      const bad = await page.evaluate(() => {
+        return Object.keys(PD.RECIPES).filter((id) => {
+          const u = PD.RECIPES[id] && PD.RECIPES[id].src ? PD.RECIPES[id].src.url : "";
+          return !u.startsWith("https://");
+        });
+      });
+      assert(bad.length === 0, "every recipe URL must start with https://, got non-https for " + JSON.stringify(bad));
       await page.close();
     });
   }

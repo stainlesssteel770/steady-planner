@@ -65,9 +65,21 @@
       <label><input id="setPickyMode" type="checkbox"> Picky mode: only plain protein + single-side meals</label>
     </div>
     <div class="fld">
+      <label>Variety
+        <select id="setVariety">
+          <option value="mix">Mix it up</option>
+          <option value="familiar">Keep it familiar</option>
+        </select>
+      </label>
+    </div>
+    <div class="fld">
       <div class="fld-label">Proteins I eat</div>
       <div id="setProteinList"></div>
       <p class="muted small" id="setProteinMsg"></p>
+    </div>
+    <div class="fld">
+      <div class="fld-label">Not again</div>
+      <div id="setRecipeNoList"></div>
     </div>
     <p class="inline-err" id="setError" role="alert" hidden></p>
     <div class="fld">
